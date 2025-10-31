@@ -63,6 +63,11 @@ class BaseAgent(BaseModel, ABC):
     file_read_tool: Optional[FileReadTool] = Field(default=None, description="文件读取工具")
     artifact_tool: Optional[ArtifactWriteTool] = Field(default=None, description="Artifact写入工具")
     terminate: Optional[Terminate] = Field(default=None, description="终止工具实例")
+    
+    # 用户交互相关
+    interaction_manager: Optional[Any] = Field(default=None, description="交互管理器")
+    session_id: Optional[str] = Field(default=None, description="会话ID")
+    user_interaction_tool: Optional[Any] = Field(default=None, description="用户交互工具")
 
     # Token计算
     token_counter: TokenCounter = TokenCounter("gpt-4o")
@@ -99,7 +104,40 @@ class BaseAgent(BaseModel, ABC):
         self.add_tool(self.file_read_tool)
         self.add_tool(self.artifact_tool)
         self.add_tool(self.terminate)
+        
+        # 初始化用户交互工具
+        self._init_user_interaction_tool()
 
+    def _init_user_interaction_tool(self):
+        """初始化用户交互工具"""
+        if self.interaction_manager and self.session_id:
+            try:
+                from backend.tools.user_interaction import UserInteractionTool
+                self.user_interaction_tool = UserInteractionTool(
+                    interaction_manager=self.interaction_manager,
+                    session_id=self.session_id
+                )
+                self.add_tool(self.user_interaction_tool)
+                logger.info(f"Agent {self.agent_name} 已启用用户交互功能")
+            except ImportError as e:
+                logger.warning(f"无法导入用户交互工具: {e}")
+        else:
+            logger.debug(f"Agent {self.agent_name} 未配置用户交互功能")
+    
+    def enable_user_interaction(self, interaction_manager, session_id: str):
+        """启用用户交互功能"""
+        self.interaction_manager = interaction_manager
+        self.session_id = session_id
+        self._init_user_interaction_tool()
+        
+    def disable_user_interaction(self):
+        """禁用用户交互功能"""
+        if self.user_interaction_tool:
+            self.remove_tool("ask_user")
+            self.user_interaction_tool = None
+        self.interaction_manager = None
+        self.session_id = None
+        logger.info(f"Agent {self.agent_name} 已禁用用户交互功能")
         
     def get_prompt(
         self,
