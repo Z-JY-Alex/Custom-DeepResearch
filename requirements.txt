@@ -1,0 +1,17 @@
+# 核心依赖
+loguru>=0.7.0
+pydantic>=2.0.0
+fastapi>=0.100.0
+uvicorn>=0.23.0
+requests>=2.31.0
+
+# 数据库
+asyncpg>=0.28.0
+
+# LLM相关
+openai>=1.0.0
+
+# 其他可能需要的依赖
+aiohttp>=3.8.0
+python-dotenv>=1.0.0
+

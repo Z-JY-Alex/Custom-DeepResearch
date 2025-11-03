@@ -1,4 +1,5 @@
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, AsyncGenerator
 from pydantic import Field
 from loguru import logger
@@ -12,7 +13,7 @@ from backend.llm.base import BaseLLM, Message, MessageRole, LLMConfig
 from backend.prompts.test_cases import TEST_CASES_SYSTEM_PROMPT, TEST_CASES_USER_PROMPT
 
 CURRUENT_TIME = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-WORKDIR = "/data/zhujingyuan/deepresearch"
+WORKDIR = str(Path(__file__).parent.parent.parent.absolute())
 
 
 class TestCasesGeneratorAgent(BaseAgent):

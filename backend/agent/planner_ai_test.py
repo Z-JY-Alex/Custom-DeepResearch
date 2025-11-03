@@ -14,9 +14,11 @@ from backend.tools.plan import PlanningTool
 from backend.tools.agent_change import SubAgentExecute
 from backend.prompts.plan_ai_test import PLANNER_INSTRUCTION, PLAN_USER_PROMPT
 from backend.utils.history import save_history_to_file
+from pathlib import Path
 
 CURRUENT_TIME = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-WORKDIR = "/data/zhujingyuan/deepresearch"
+# 获取项目根目录（从当前文件向上三级：backend/agent/ -> backend/ -> project root）
+WORKDIR = str(Path(__file__).parent.parent.parent.absolute())
 
 
 class PlanAgent(BaseAgent):

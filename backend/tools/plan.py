@@ -1,5 +1,6 @@
 # tool/planning.py
 from typing import Dict, List, Literal, Optional, TYPE_CHECKING
+from pathlib import Path
 
 from backend.tools.base import BaseTool, ToolError, ToolCallResult
 
@@ -545,7 +546,13 @@ class PlanningTool(BaseTool):
                     if notes:
                         output += f"备注: {notes}\n"
 
-        with open(f"/data/zhujingyuan/deepresearch/output/{plan['title']}.md", "w") as f:
+        # 获取项目根目录（从当前文件向上两级：backend/tools/ -> backend/ -> project root）
+        project_root = Path(__file__).parent.parent.parent
+        output_dir = project_root / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        output_file = output_dir / f"{plan['title']}.md"
+        with open(output_file, "w", encoding="utf-8") as f:
             f.write(output)
         
         return output

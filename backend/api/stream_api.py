@@ -3,6 +3,14 @@
 支持实时工具调用、文件操作和状态监控
 """
 
+import sys
+from pathlib import Path
+
+# 添加项目根目录到 Python 路径
+project_root = Path(__file__).parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
 import json
 import asyncio
 import uuid
@@ -101,7 +109,18 @@ class StreamAPIHandler:
         
     def create_agent(self, agent_type: str, llm_config: Dict[str, Any], session_id: str) -> Any:
         """创建Agent实例"""
+        # 确保配置中有必要的字段
+        logger.debug(f"创建Agent，配置: {llm_config}")
+        
+        # 确保max_tokens不会超过模型限制（65536）
+        if "max_tokens" in llm_config and llm_config["max_tokens"] > 65536:
+            logger.warning(f"max_tokens ({llm_config['max_tokens']}) 超过模型限制65536，将自动调整为65536")
+            llm_config["max_tokens"] = 65536
+        
         llm_config_obj = LLMConfig(**llm_config)
+        # 验证配置
+        if not llm_config_obj.api_key:
+            logger.warning(f"LLM配置中的api_key为空，配置对象: {llm_config_obj}")
         memory = BaseMemory()
         artifact_manager = ArtifactManager()
         
@@ -232,6 +251,7 @@ class StreamAPIHandler:
         try:
             # 创建Agent
             llm_config = request.llm_config or {
+                "model_name": "MaaS_Sonnet_4",
                 "api_key": "amep3rwbqWIpFoOnKpZw",
                 "base_url": "https://genaiapish-zy2cw9s.xiaosuai.com/v1",
                 "max_tokens": 64000

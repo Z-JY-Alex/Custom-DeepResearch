@@ -2,7 +2,9 @@
 api_docs_test.md
 
 # Python 相关
+# Python 缓存文件
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.so
@@ -68,3 +70,5 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
+*.pyc
+output/

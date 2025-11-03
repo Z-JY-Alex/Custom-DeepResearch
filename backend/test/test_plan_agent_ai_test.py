@@ -46,7 +46,7 @@ logger.add(
 
 
 async def main(query):
-    memory = BaseMemory()
+    memory = BaseMemory(compression_llm_config=llm_config)
     artifact_manager = ArtifactManager()
 
     agent_maps = {
@@ -67,7 +67,10 @@ async def main(query):
 
 if __name__ == "__main__":
     import asyncio
-    with open("/data/zhujingyuan/deepresearch/api_docs_test.md", "r") as f:
+    # 使用相对于项目根目录的路径
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    api_docs_path = os.path.join(project_root, "api_docs_test.md")
+    with open(api_docs_path, "r", encoding="utf-8") as f:
         api_docs = f.read()
-    asyncio.run(main(f"{api_docs}\n\n\n其中测试用例已经生成，位置在`output/保存数字人视频详情_测试用例.md`, 请直接编写相应的测试代码即可，不需要在完善测试用例"))
+    asyncio.run(main(f"{api_docs}"))
     # asyncio.run(main("制定一个计划，先计算1+1的结果，然后在加上2， 并将结果保存为result.md文件，在读取文件内容"))

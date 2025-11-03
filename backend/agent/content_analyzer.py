@@ -1,4 +1,5 @@
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, AsyncGenerator
 from pydantic import Field
 from loguru import logger
@@ -13,7 +14,7 @@ from backend.prompts.content_analysis import CONTENT_ANALYSIS_SYSTEMP_PROMPT, CO
 from backend.tools.shell_execute import ShellExecuteTool
 
 CURRUENT_TIME = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-WORKDIR = "/data/zhujingyuan/deepresearch"
+WORKDIR = str(Path(__file__).parent.parent.parent.absolute())
 
 class ContentAnalyzerAgent(BaseAgent):
     """

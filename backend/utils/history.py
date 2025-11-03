@@ -7,6 +7,7 @@ import os
 import json
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+from pathlib import Path
 from loguru import logger
 
 from backend.llm.base import Message, MessageRole
@@ -19,7 +20,7 @@ def save_history_to_file(
     task: str,
     all_history: List[Message],
     filepath: Optional[str] = None,
-    workdir: str = "/data/zhujingyuan/deepresearch"
+    workdir: Optional[str] = None
 ) -> str:
     """
     保存 all_history 到文件
@@ -30,12 +31,16 @@ def save_history_to_file(
         task: 任务描述
         all_history: 消息历史列表
         filepath: 文件路径，如果为None则使用默认路径
-        workdir: 工作目录
+        workdir: 工作目录，如果为None则使用项目根目录
         
     Returns:
         str: 保存的文件路径
     """
     if filepath is None:
+        # 如果未指定工作目录，使用项目根目录（从当前文件向上三级：backend/utils/ -> backend/ -> project root）
+        if workdir is None:
+            workdir = str(Path(__file__).parent.parent.parent.absolute())
+        
         # 创建基于agent_id和时间戳的默认文件名
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"history_{agent_id}.json"
@@ -178,18 +183,21 @@ def load_history_info(filepath: str) -> Dict[str, Any]:
         raise
 
 
-def list_history_files(history_dir: str = None, workdir: str = "/data/zhujingyuan/deepresearch") -> List[Dict[str, Any]]:
+def list_history_files(history_dir: str = None, workdir: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     列出历史文件夹中的所有历史文件
     
     Args:
         history_dir: 历史文件夹路径，如果为None则使用默认路径
-        workdir: 工作目录
+        workdir: 工作目录，如果为None则使用项目根目录
         
     Returns:
         List[Dict[str, Any]]: 历史文件信息列表
     """
     if history_dir is None:
+        # 如果未指定工作目录，使用项目根目录（从当前文件向上三级：backend/utils/ -> backend/ -> project root）
+        if workdir is None:
+            workdir = str(Path(__file__).parent.parent.parent.absolute())
         history_dir = os.path.join(workdir, "output", "history")
     
     if not os.path.exists(history_dir):

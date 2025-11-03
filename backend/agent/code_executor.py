@@ -1,4 +1,5 @@
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, AsyncGenerator
 from pydantic import Field
 from loguru import logger
@@ -15,7 +16,7 @@ from backend.tools.code_execute import CodeExecuteTool
 from backend.prompts.code_exec import CODE_EXEC_SYSTEMP_PROMPT, CODE_EXEC_USER_PROMPT
 
 CURRUENT_TIME = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-WORKDIR = "/data/zhujingyuan/deepresearch"
+WORKDIR = str(Path(__file__).parent.parent.parent.absolute())
 
 
 class CodeExecutorAgent(BaseAgent):
