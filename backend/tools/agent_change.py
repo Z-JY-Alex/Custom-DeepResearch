@@ -1,5 +1,6 @@
 import os
 import asyncio
+import json
 from typing import Any, Dict, Optional, List
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -7,8 +8,11 @@ from backend.llm.base import LLMConfig
 from backend.memory.base import BaseMemory
 from backend.artifacts.manager import ArtifactManager
 from backend.tools.base import BaseTool, ToolCallResult, ToolError
+from datetime import datetime
 
-AGENT_LIST = ["WEB_SEARCH", "CONTENT_ANALYSIS", "TEST_CASE_GENERATE", "CODE_GENERATE"]
+CURRUENT_TIME = datetime.now()
+
+AGENT_LIST = ["WEB_SEARCH", "CONTENT_ANALYSIS", "TEST_CASE_GENERATE", "CODE_GENERATE", "SUMMARY_REPORT"]
 
 _SUB_AGENT_EXECUTE_DESCRIPTION = """智能选择并调度最合适的子代理来执行特定任务。
 此工具会根据任务的类型、复杂度、领域特征和执行要求，自动匹配最适合的专业子代理。
@@ -20,6 +24,7 @@ _AGENT_NAME_DESCRIPTION = """
 - CONTENT_ANALYSIS: 文档分析、文档内容解读
 - TEST_CASE_GENERATE: 测试用例设计和生成专家，**所有涉及测试用例的任务都必须使用此代理**
 - CODE_GENERATE: 代码编写和技术实现专家
+- SUMMARY_REPORT: 信息汇总、分析总结与报告生成专家，**所有涉及数据汇总、结果分析、报告撰写、复盘总结的任务都必须使用此代理**
 
 选择原则：
 - 根据任务的核心需求选择最匹配的代理
@@ -44,13 +49,18 @@ _AGENT_NAME_DESCRIPTION = """
 - "设计登录接口的测试用例" → TEST_CASE_GENERATE
 - "生成API接口测试场景" → TEST_CASE_GENERATE
 - "实现一个LRU缓存算法" → CODE_GENERATE
+- "汇总本次迭代的测试执行结果" → SUMMARY_REPORT
+- "生成项目月度进展报告" → SUMMARY_REPORT
 """
 
 _AGENT_TASK_DESCRIPTION = """
 要执行的具体任务描述，需要清晰、完整地说明子代理需要完成的工作。
 
+【当前时间】 {CURRUENT_TIME}
+
 【核心要素】（必需）
 - 任务目标：明确说明要达成什么结果
+- 时间要求: 对于有时效性的信息，除非用户特殊要求，否则请按照最新时间来处理。
 - 输入信息：提供必要的数据、参数或上下文
 - 输出要求：说明期望的输出格式、内容结构或质量标准
 
@@ -92,6 +102,14 @@ TEST_CASE_GENERATE 任务描述应包含：
 - 用例格式要求（表格、代码、自然语言描述）
 - **如果是接口测试，必须包含接口分析过程和测试用例设计**
 - **支持从接口文档分析到测试用例生成的完整流程**
+- **如果任务需要生成测试报告总结，报告必须包含以下内容**：
+  * 测试概览：总测试用例数、通过用例数、失败用例数、通过率、执行时间等统计信息
+  * 失败用例详情：对于每一个未通过的测试用例，必须详细记录：
+    - 用例名称和标识
+    - 完整的请求入参（包括所有请求参数、请求头、请求体等）
+    - 完整的响应出参（包括响应状态码、响应头、响应体等）
+    - 错误情况描述（错误类型、错误消息、堆栈信息等）
+    - 失败原因分析
 
 CODE_GENERATE 任务描述应包含：
 - 编程语言和技术栈
@@ -99,6 +117,14 @@ CODE_GENERATE 任务描述应包含：
 - 性能要求和约束条件
 - 代码风格和规范要求
 - 是否需要测试代码和文档
+- **如果任务需要生成测试报告总结，报告必须包含以下内容**：
+  * 测试概览：总测试用例数、通过用例数、失败用例数、通过率、执行时间等统计信息
+  * 失败用例详情：对于每一个未通过的测试用例，必须详细记录：
+    - 用例名称和标识
+    - 完整的请求入参（包括所有请求参数、请求头、请求体等）
+    - 完整的响应出参（包括响应状态码、响应头、响应体等）
+    - 错误情况描述（错误类型、错误消息、堆栈信息等）
+    - 失败原因分析
 
 **特殊要求：**
 - 对于自动化测试相关的代码生成任务：
@@ -108,11 +134,49 @@ CODE_GENERATE 任务描述应包含：
   * 保持代码结构简单直接
   * 仅生成必要的测试配置和工具函数
 
+- **对于测试报告总结生成任务**：
+  * 报告必须包含完整的测试概览统计信息（总用例数、通过数、失败数、通过率、执行时间等）
+  * **必须详细记录每个失败用例的完整信息**：
+    - 每个失败用例的请求入参（所有参数、请求头、请求体）
+    - 每个失败用例的响应出参（状态码、响应头、响应体）
+    - 每个失败用例的错误详情（错误类型、错误消息、异常堆栈）
+    - 每个失败用例的失败原因分析
+  * 报告格式应清晰易读，便于问题定位和调试
+  * 失败用例信息应结构化展示，包含必要的上下文信息
+
+- 对于搭建测试环境和配置等任务（如"搭建测试环境"、"配置测试环境"、"初始化测试项目"等）：
+  * **必须首先在{session_id}目录下创建项目文件夹**：在任务描述中明确指定项目文件夹名称（如{{project_name}}或具体名称），在{session_id}目录下创建该文件夹
+  * **然后在{session_id}/{{project_name}}文件夹下创建文件结构**：包括必要的配置文件、目录结构等
+  * 确保项目文件结构的完整性和规范性
+  * 按照标准项目模板或最佳实践创建基础文件
+  * 在任务描述中明确说明需要创建的项目文件夹名称和项目文件清单（如 requirements.txt、pytest.ini、conftest.py、目录结构等）
+  * **重要：所有项目文件夹必须创建在{session_id}目录下，路径格式为：{session_id}/{{project_name}}**
+
+SUMMARY_REPORT 任务描述应包含：
+- **汇总范围界定**：明确需要汇总的时间范围、业务范围、系统模块或项目范围
+- **关键指标要求**：列出报告中必须体现的核心指标和维度（如：
+  * 测试维度：通过率、缺陷密度、覆盖率、执行效率
+  * 项目维度：进度达成率、里程碑完成情况、资源利用率
+  * 业务维度：用户满意度、转化率、关键业务指标、增长趋势
+  * 质量维度：问题分布、风险等级、改进空间
+  * 调研维度：市场规模、技术成熟度、用户痛点、竞争格局、可行性评估
+- **分析深度要求**：说明需要的分析层次
+  * 描述性分析：现状是什么（统计汇总、数据呈现）
+  * 诊断性分析：为什么会这样（原因归因、问题挖掘）
+  * 预测性分析：未来会怎样（趋势预测、风险预警）
+  * 指导性分析：应该怎么做（改进建议、行动计划、决策建议）
+- **输出格式要求**：
+  * 报告结构（执行摘要、详细分析、附录等）
+  * 呈现方式（文字报告、表格、图表、可视化看板）
+  * 详略程度（简版摘要、详细报告、数据明细）
+  * 交付格式（Markdown、Word、PDF、PPT、在线文档）
+- **特殊关注点**：需要重点强调的亮点、风险、异常情况、关键发现或决策关键信息
+
 【描述示例】
 **好的描述示例**：
 
 WEB_SEARCH:
-"搜索2024年AI Agent技术的最新发展趋势，重点关注多代理协作和工具调用能力，
+"搜索2025年AI Agent技术的最新发展趋势，重点关注多代理协作和工具调用能力，
     需要来自技术博客、学术论文和行业报告的信息，整理成按时间线组织的结构化摘要，
     突出标志性进展和主流技术路线"
 
@@ -145,6 +209,25 @@ CODE_GENERATE:
     包含测试数据准备、接口调用、断言验证、报告生成，
     代码结构保持简单直接，不需要多环境配置和复杂日志系统，
     专注于测试逻辑的核心实现和测试结果的清晰展示"
+
+"生成测试报告总结，报告必须包含：
+    1. 测试概览：总测试用例数、通过用例数、失败用例数、通过率、执行时间等统计信息
+    2. 失败用例详情：对于每一个未通过的测试用例，详细记录：
+       - 用例名称和标识
+       - 完整的请求入参（包括所有请求参数、请求头、请求体等）
+       - 完整的响应出参（包括响应状态码、响应头、响应体等）
+       - 错误情况描述（错误类型、错误消息、堆栈信息等）
+       - 失败原因分析
+    报告格式应清晰易读，便于问题定位和调试"
+
+"搭建Python接口自动化测试环境，**首先在{session_id}目录下创建项目文件夹{{project_name}}，然后在该文件夹下创建文件结构**：
+    1. 在{session_id}目录下创建项目文件夹{{project_name}}（完整路径：{session_id}/{{project_name}}）
+    2. 在{session_id}/{{project_name}}文件夹下创建标准目录结构（tests/、config/、utils/、reports/等）
+    3. 在{session_id}/{{project_name}}文件夹下创建项目配置文件：requirements.txt（包含pytest、requests、allure相关依赖）、
+       pytest.ini（pytest配置）、.gitignore、README.md
+    4. 在{session_id}/{{project_name}}文件夹下创建conftest.py提供公共fixture和配置
+    5. 在{session_id}/{{project_name}}文件夹下创建基础工具模块（如utils/api_client.py、utils/data_loader.py等）
+    6. 确保项目结构符合最佳实践，便于后续开发和维护"
 
 **上下文关联示例**：
 
@@ -191,6 +274,7 @@ class SubAgentExecute(BaseTool):
     包括但不限于数据处理、内容生成、分析计算、自动化操作等。"""
     name: str = "sub_agent_run"
     description: str = _SUB_AGENT_EXECUTE_DESCRIPTION
+    session_id: Optional[str] = Field(default=None, description="会话ID")
     parameters: dict = {
         "type": "object",
         "properties": {
@@ -201,7 +285,7 @@ class SubAgentExecute(BaseTool):
             },
             "task": {
                 "type": "string",
-                "description": _AGENT_TASK_DESCRIPTION,
+                "description": _AGENT_TASK_DESCRIPTION.format(CURRUENT_TIME=CURRUENT_TIME, session_id=session_id),
             },
             # "context": {
             #     "type": "string",
@@ -245,9 +329,10 @@ class SubAgentExecute(BaseTool):
         
         agent_class = self.agent_pools[agent_name]
         agent = agent_class(
+            session_id=self.session_id,
             llm_config=self.llm_config,
             memory=self.memory,
-            artifact_manager=self.artifact_manager
+            artifact_manager=self.artifact_manager,
         )
         
         # 构建完整的任务描述

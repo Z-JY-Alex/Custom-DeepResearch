@@ -119,13 +119,24 @@ class OpenAILLM(BaseLLM):
             
             # 调用OpenAI API
             response = await self.client.chat.completions.create(**api_params)
-            
+
             if not response.choices:
                 raise LLMException("API返回的响应中没有选择项")
-            
+
+            # 记录usage信息
+            if hasattr(response, 'usage') and response.usage:
+                usage_info = {
+                    "completion_tokens": response.usage.completion_tokens,
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "total_tokens": response.usage.total_tokens
+                }
+                logger.info(f"Token使用情况 - completion_tokens: {usage_info['completion_tokens']}, "
+                           f"prompt_tokens: {usage_info['prompt_tokens']}, "
+                           f"total_tokens: {usage_info['total_tokens']}")
+
             choice = response.choices[0]
             message = choice.message
-            
+
             # 处理工具调用
             if message.tool_calls:
                 # 返回包含工具调用信息的特殊格式
@@ -134,11 +145,11 @@ class OpenAILLM(BaseLLM):
                     "content": message.content or "",
                     "tool_calls": [{"id": tc.id, "type": tc.type, "function": tc.function} for tc in tool_calls]
                 })
-            
+
             content = message.content
             if content is None:
                 raise LLMException("API返回的内容为空")
-            
+
             return content
             
         except Exception as e:
@@ -185,13 +196,24 @@ class OpenAILLM(BaseLLM):
                 if chunk.choices and len(chunk.choices) > 0:
                     delta = chunk.choices[0].delta
                     finish_reason = chunk.choices[0].finish_reason
-                     
+
+                    # 检查并记录usage信息
+                    if hasattr(chunk, 'usage') and chunk.usage:
+                        usage_info = {
+                            "completion_tokens": chunk.usage.completion_tokens,
+                            "prompt_tokens": chunk.usage.prompt_tokens,
+                            "total_tokens": chunk.usage.total_tokens
+                        }
+                        logger.info(f"Token使用情况 - completion_tokens: {usage_info['completion_tokens']}, "
+                                   f"prompt_tokens: {usage_info['prompt_tokens']}, "
+                                   f"total_tokens: {usage_info['total_tokens']}")
+
                     # 处理工具调用
                     if delta.tool_calls:
                         for tool_call in delta.tool_calls:
                             # 获取 index，如果没有则默认为 0
                             index = getattr(tool_call, 'index', 0)
-                            
+
                             # 如果这个 index 的工具调用还不存在，初始化它
                             if index not in collected_tool_calls:
                                 collected_tool_calls[index] = {
@@ -202,7 +224,7 @@ class OpenAILLM(BaseLLM):
                                         "arguments": ""
                                     }
                                 }
-                            
+
                             # 累积工具调用信息
                             if tool_call.id:
                                 collected_tool_calls[index]["id"] = tool_call.id
@@ -217,14 +239,25 @@ class OpenAILLM(BaseLLM):
                     
                     # 检查是否有内容
                     if delta.content is not None:
+                        # 构建metadata
+                        metadata = {
+                            "chunk_index": chunk_index,
+                            "finish_reason": finish_reason,
+                            "model": chunk.model if hasattr(chunk, 'model') else self.config.model_name
+                        }
+
+                        # 如果有usage信息，添加到metadata中
+                        if hasattr(chunk, 'usage') and chunk.usage:
+                            metadata["usage"] = {
+                                "completion_tokens": chunk.usage.completion_tokens,
+                                "prompt_tokens": chunk.usage.prompt_tokens,
+                                "total_tokens": chunk.usage.total_tokens
+                            }
+
                         yield StreamChunk(
                             content=delta.content,
                             is_complete=finish_reason is not None,
-                            metadata={
-                                "chunk_index": chunk_index,
-                                "finish_reason": finish_reason,
-                                "model": chunk.model if hasattr(chunk, 'model') else self.config.model_name
-                            }
+                            metadata=metadata
                         )
                         chunk_index += 1
                     
@@ -243,16 +276,27 @@ class OpenAILLM(BaseLLM):
                                         type=tc_data["type"],
                                         function=tc_data["function"]
                                     ))
-                        
+
+                        # 构建完成metadata
+                        complete_metadata = {
+                            "chunk_index": chunk_index,
+                            "finish_reason": finish_reason,
+                            "total_chunks": chunk_index
+                        }
+
+                        # 如果有usage信息，添加到metadata中
+                        if hasattr(chunk, 'usage') and chunk.usage:
+                            complete_metadata["usage"] = {
+                                "completion_tokens": chunk.usage.completion_tokens,
+                                "prompt_tokens": chunk.usage.prompt_tokens,
+                                "total_tokens": chunk.usage.total_tokens
+                            }
+
                         yield StreamChunk(
                             content="",
                             is_complete=True,
                             tool_calls=tool_calls_obj,
-                            metadata={
-                                "chunk_index": chunk_index,
-                                "finish_reason": finish_reason,
-                                "total_chunks": chunk_index
-                            }
+                            metadata=complete_metadata
                         )
                 
         except Exception as e:

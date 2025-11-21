@@ -38,6 +38,7 @@ class ToolFunction(BaseModel):
     name: str = Field(..., description="工具函数名称")
     description: str = Field(..., description="工具函数描述")
     parameters: Optional[Dict[str, Any]] = Field(default=None, description="工具函数参数")
+    parallel: bool = Field(default=False, description="是否并发执行")
     
     class Config:
         arbitrary_types_allowed = True
@@ -87,7 +88,8 @@ class BaseTool(ToolFunction):
 class ToolCallResult(BaseModel):
     """LLM工具调用结果"""
     tool_call_id: str = Field(..., description="工具调用ID")
-    result: Optional[str] = Field(default=None, description="执行结果")
+    result: Optional[str] = Field(default=None, description="执行结果（内部详细结果）")
+    user_result: Optional[str] = Field(default=None, description="用户友好的执行结果")
     error: Optional[str] = Field(default=None, description="错误信息")
     output: Optional[Any] = Field(default=None, description="输出内容")
     base64_image: Optional[str] = Field(default=None, description="Base64编码的图片")
@@ -109,7 +111,19 @@ class ToolCallResult(BaseModel):
         return any(getattr(self, field_name) for field_name in field_names if field_name != 'tool_call_id')
     
     def __str__(self):
-        """字符串表示"""
+        """字符串表示（默认返回用户友好结果，如无则返回内部结果）"""
+        if self.error:
+            return f"Error: {self.error} "
+        return str(self.user_result or self.result or self.output or "")
+
+    def get_user_output(self) -> str:
+        """获取给用户看的结果"""
+        if self.error:
+            return f"Error: {self.error} "
+        return str(self.user_result or self.result or self.output or "")
+
+    def get_internal_output(self) -> str:
+        """获取给内部看的详细结果"""
         if self.error:
             return f"Error: {self.error} "
         return str(self.result or self.output or "")
@@ -119,7 +133,7 @@ class ToolCallResult(BaseModel):
         if isinstance(other, str):
             # 与字符串相加，返回字符串
             return str(self) + other
-        
+
         # 与另一个ToolCallResult相加
         def combine_fields(field: Optional[str], other_field: Optional[str], concatenate: bool = True):
             if field and other_field:
@@ -127,10 +141,11 @@ class ToolCallResult(BaseModel):
                     return field + other_field
                 raise ValueError("Cannot combine tool results")
             return field or other_field
-        
+
         return ToolCallResult(
             tool_call_id=self.tool_call_id,
             result=combine_fields(self.result, other.result),
+            user_result=combine_fields(self.user_result, other.user_result),
             error=combine_fields(self.error, other.error),
             output=combine_fields(self.output, other.output),
             base64_image=combine_fields(self.base64_image, other.base64_image, False),

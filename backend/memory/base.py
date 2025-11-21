@@ -3,6 +3,7 @@ Memory基类模块：提供记忆管理、Token统计等基础功能
 """
 
 import json
+import os
 import uuid
 import re
 from datetime import datetime
@@ -84,10 +85,12 @@ class BaseMemory(BaseModel):
             if self.compression_llm_config is None:
                 # 使用默认配置创建一个轻量级的LLM用于压缩
                 self.compression_llm_config = LLMConfig(
-                    model_name="gpt-4o-mini",  # 使用更便宜的模型进行压缩
+                    model_name="MaaS_Sonnet_4",  # 使用更便宜的模型进行压缩
                     temperature=0.3,
                     max_tokens=1000,
-                    timeout=30.0
+                    timeout=30.0,
+                    api_key="amep3rwbqWIpFoOnKpZw",
+                    base_url="https://genaiapish-zy2cw9s.xiaosuai.com/v1"
                 )
             self.compression_llm = OpenAILLM(self.compression_llm_config)
     
@@ -126,7 +129,10 @@ class BaseMemory(BaseModel):
         pass
 
     def calculate_agent_tokens(self, agent_id: str) -> int:
-        """计算指定Agent的Token数量"""
+        """
+        计算指定Agent的Token数量
+        优先使用最近一次LLM调用返回的真实total_tokens，回退到估算值
+        """
         if agent_id not in self.states:
             return 0
 
@@ -135,8 +141,27 @@ class BaseMemory(BaseModel):
             return 0
 
         try:
+            # 从后往前查找最近的真实token统计
+            for msg in reversed(all_history):
+                if msg.metadata and "usage" in msg.metadata:
+                    usage = msg.metadata["usage"]
+                    if "total_tokens" in usage:
+                        total_tokens = usage["total_tokens"]
+                        logger.debug(
+                            f"Agent {agent_id} Token统计(真实) - "
+                            f"total_tokens: {total_tokens}, "
+                            f"completion_tokens: {usage.get('completion_tokens', 'N/A')}, "
+                            f"prompt_tokens: {usage.get('prompt_tokens', 'N/A')}"
+                        )
+                        return  
+
+            # 如果没有找到真实统计，回退到估算所有消息
+            logger.debug(f"Agent {agent_id} 未找到真实Token统计，回退到估算")
             token_stats = self.token_counter.count_messages_tokens(all_history)
-            return token_stats["total_tokens"]
+            total_tokens = token_stats["total_tokens"]
+            logger.debug(f"Agent {agent_id} Token统计(估算) - total_tokens: {total_tokens}")
+            return total_tokens
+
         except Exception as e:
             logger.error(f"Token计算失败: {e}")
             return 0
@@ -154,6 +179,36 @@ class BaseMemory(BaseModel):
         logger.debug(f"Agent {agent_id} - 当前Token数: {current_tokens}, 阈值: {threshold_tokens}")
         return current_tokens > threshold_tokens
 
+    def _adjust_compression_range(self, messages: List[Message], start: int, end: int) -> tuple:
+        """
+        调整压缩范围，避免分割工具调用对
+        如果压缩范围刚好分割了工具调用对，则向前或向后调整一位
+        返回: (adjusted_start, adjusted_end)
+        """
+        # 检查起始位置是否在工具调用对中间
+        if start > 0 and start < len(messages):
+            # 如果start位置是TOOL消息，且前面是ASSISTANT消息，说明分割了工具调用对
+            if (messages[start].role == MessageRole.TOOL and 
+                messages[start - 1].role == MessageRole.ASSISTANT and 
+                messages[start - 1].has_tool_calls()):
+                # 向前调整，包含整个工具调用对
+                start = start - 1
+        
+        # 检查结束位置是否在工具调用对中间
+        if end >= 0 and end < len(messages) - 1:
+            # 如果end位置是ASSISTANT消息，且后面是TOOL消息，说明分割了工具调用对
+            if (messages[end].role == MessageRole.ASSISTANT and 
+                messages[end].has_tool_calls() and 
+                end + 1 < len(messages) and 
+                messages[end + 1].role == MessageRole.TOOL):
+                # 向后调整，包含整个工具调用对
+                end = end + 1
+                # 继续向后查找，直到找到所有TOOL消息
+                while end + 1 < len(messages) and messages[end + 1].role == MessageRole.TOOL:
+                    end = end + 1
+        
+        return (start, end)
+
     async def compress_agent_conversation_history(
         self,
         agent_id: str,
@@ -163,6 +218,7 @@ class BaseMemory(BaseModel):
         """
         智能压缩指定Agent的对话历史
         保留开始几轮和最近几轮对话，压缩中间部分
+        确保不会分割工具调用对(tool_use + tool_result)
         """
         if agent_id not in self.states:
             logger.warning(f"未找到Agent {agent_id} 的对话历史")
@@ -174,17 +230,29 @@ class BaseMemory(BaseModel):
             return False
 
         try:
-            # 分离要保留的和要压缩的消息
-            initial_messages = all_history[:preserve_initial_rounds]
-            recent_messages = all_history[-preserve_recent_rounds:]
-            middle_messages = all_history[preserve_initial_rounds:-preserve_recent_rounds]
-
-            if not middle_messages:
+            # 计算原始压缩范围
+            original_start = preserve_initial_rounds
+            original_end = len(all_history) - preserve_recent_rounds - 1
+            
+            if original_start >= original_end:
                 logger.info(f"Agent {agent_id} 中间消息为空，无需压缩")
                 return False
 
+            # 调整压缩范围，避免分割工具调用对
+            adjusted_start, adjusted_end = self._adjust_compression_range(all_history, original_start, original_end)
+            
+            # 分离要保留的和要压缩的消息
+            initial_messages = all_history[:adjusted_start]
+            middle_messages = all_history[adjusted_start:adjusted_end + 1]
+            recent_messages = all_history[adjusted_end + 1:]
+
+            if not middle_messages:
+                logger.info(f"Agent {agent_id} 调整后的压缩范围内无消息，无需压缩")
+                return False
+
             # 使用LLM压缩中间消息
-            logger.info(f"开始使用LLM压缩Agent {agent_id} 的 {len(middle_messages)} 条中间消息")
+            range_info = f"原始范围: {original_start}-{original_end}, 调整后: {adjusted_start}-{adjusted_end}"
+            logger.info(f"开始使用LLM压缩Agent {agent_id} 的 {len(middle_messages)} 条中间消息 ({range_info})")
             compressed_summary = await self._compress_messages(middle_messages)
 
             # 创建压缩后的消息
@@ -192,7 +260,13 @@ class BaseMemory(BaseModel):
                 role=MessageRole.SYSTEM,
                 content=f"[LLM压缩摘要] {compressed_summary}",
                 timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                metadata={"compressed": True, "original_count": len(middle_messages), "compression_method": "llm"}
+                metadata={
+                    "compressed": True, 
+                    "original_count": len(middle_messages), 
+                    "compression_method": "llm",
+                    "original_range": f"{original_start}-{original_end}",
+                    "adjusted_range": f"{adjusted_start}-{adjusted_end}"
+                }
             )
 
             # 重建历史记录
@@ -204,7 +278,7 @@ class BaseMemory(BaseModel):
 
             logger.info(
                 f"Agent {agent_id} LLM内存压缩完成: {len(all_history)} -> {len(new_history)} 条消息, "
-                f"压缩次数: {self.total_compressions}"
+                f"压缩次数: {self.total_compressions}, {range_info}"
             )
 
             return True
@@ -239,9 +313,23 @@ class BaseMemory(BaseModel):
 
             # 获取LLM压缩结果
             compressed_summary = ""
+            usage_info = None  # 存储真实的token使用情况
+
             async for chunk in await self.compression_llm.generate(messages=compression_messages, tools=[]):
                 if chunk.content:
                     compressed_summary += chunk.content
+                # 收集usage信息
+                if chunk.metadata and "usage" in chunk.metadata:
+                    usage_info = chunk.metadata["usage"]
+
+            # 记录压缩时的token使用情况
+            if usage_info:
+                logger.info(
+                    f"LLM压缩Token使用 - "
+                    f"completion_tokens: {usage_info.get('completion_tokens', 'N/A')}, "
+                    f"prompt_tokens: {usage_info.get('prompt_tokens', 'N/A')}, "
+                    f"total_tokens: {usage_info.get('total_tokens', 'N/A')}"
+                )
 
             # 如果LLM压缩失败，回退到简单压缩
             if not compressed_summary.strip():
@@ -249,7 +337,10 @@ class BaseMemory(BaseModel):
                 return self._fallback_compression(messages)
 
             # 添加元数据信息
-            metadata_info = f"[原始消息数: {len(messages)}, 压缩时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]"
+            metadata_info = f"[原始消息数: {len(messages)}, 压缩时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            if usage_info and "total_tokens" in usage_info:
+                metadata_info += f", 压缩消耗Token: {usage_info['total_tokens']}"
+            metadata_info += "]"
 
             return f"{compressed_summary.strip()} {metadata_info}"
 
@@ -262,9 +353,6 @@ class BaseMemory(BaseModel):
         formatted_lines = []
 
         for i, msg in enumerate(messages):
-            # 格式化时间戳
-            timestamp = msg.timestamp if msg.timestamp else "未知时间"
-
             # 处理消息内容
             content = str(msg.content) if msg.content else "[空内容]"
 
@@ -442,3 +530,133 @@ class BaseMemory(BaseModel):
             "compressed_memory_items": len(self.compressed_memory),
             "timestamp": self.timestamp
         }
+
+    def validate_message_sequence_for_llm(self, messages: List[Message]) -> bool:
+        """
+        验证消息序列是否符合LLM API要求，特别是工具调用对的格式
+        返回: True 如果格式正确，否则抛出异常
+        """
+        if not messages:
+            return True
+        
+        i = 0
+        while i < len(messages):
+            msg = messages[i]
+            
+            # 检查包含工具调用的ASSISTANT消息
+            if msg.role == MessageRole.ASSISTANT and msg.has_tool_calls():
+                tool_call_ids = {tc.id for tc in msg.tool_calls}
+                expected_tool_responses = len(tool_call_ids)
+                found_responses = 0
+                
+                # 检查后续消息是否为对应的TOOL响应
+                j = i + 1
+                while j < len(messages) and found_responses < expected_tool_responses:
+                    next_msg = messages[j]
+                    
+                    # 如果遇到非TOOL消息，说明工具调用对被打断
+                    if next_msg.role != MessageRole.TOOL:
+                        raise ValueError(
+                            f"工具调用对被打断: 位置 {i} 的ASSISTANT消息包含工具调用，"
+                            f"但位置 {j} 的消息角色为 {next_msg.role.value}，期望为 TOOL"
+                        )
+                    
+                    # 检查tool_call_id是否匹配
+                    if next_msg.tool_call_id not in tool_call_ids:
+                        raise ValueError(
+                            f"工具调用ID不匹配: 位置 {j} 的TOOL消息的tool_call_id '{next_msg.tool_call_id}' "
+                            f"不在位置 {i} 的ASSISTANT消息的工具调用ID列表中: {list(tool_call_ids)}"
+                        )
+                    
+                    found_responses += 1
+                    j += 1
+                
+                # 检查是否找到了所有期望的工具响应
+                if found_responses < expected_tool_responses:
+                    raise ValueError(
+                        f"工具调用对不完整: 位置 {i} 的ASSISTANT消息包含 {expected_tool_responses} 个工具调用，"
+                        f"但只找到 {found_responses} 个对应的TOOL响应"
+                    )
+                
+                i = j
+            else:
+                i += 1
+        
+        return True
+
+    def get_safe_message_history(self, agent_id: str) -> List[Message]:
+        """
+        获取经过验证的安全消息历史，确保格式符合LLM API要求
+        """
+        if agent_id not in self.states:
+            return []
+        
+        messages = self.states[agent_id].get("all_history", [])
+        
+        try:
+            # 验证消息序列格式
+            self.validate_message_sequence_for_llm(messages)
+            return messages
+        except ValueError as e:
+            logger.error(f"Agent {agent_id} 消息序列格式错误: {e}")
+            
+            # 尝试修复消息序列
+            fixed_messages = self._fix_message_sequence(messages)
+            
+            try:
+                self.validate_message_sequence_for_llm(fixed_messages)
+                logger.info(f"Agent {agent_id} 消息序列已修复")
+                # 更新修复后的消息历史
+                self.states[agent_id]["all_history"] = fixed_messages
+                return fixed_messages
+            except ValueError as fix_error:
+                logger.error(f"Agent {agent_id} 消息序列修复失败: {fix_error}")
+                # 返回空列表，强制重新开始对话
+                return []
+
+    def _fix_message_sequence(self, messages: List[Message]) -> List[Message]:
+        """
+        尝试修复消息序列中的工具调用对格式问题
+        """
+        if not messages:
+            return messages
+        
+        fixed_messages = []
+        i = 0
+        
+        while i < len(messages):
+            msg = messages[i]
+            fixed_messages.append(msg)
+            
+            # 如果是包含工具调用的ASSISTANT消息
+            if msg.role == MessageRole.ASSISTANT and msg.has_tool_calls():
+                tool_call_ids = {tc.id for tc in msg.tool_calls}
+                
+                # 收集对应的TOOL响应消息
+                tool_responses = []
+                j = i + 1
+                
+                while j < len(messages):
+                    next_msg = messages[j]
+                    
+                    # 如果是对应的TOOL响应，收集它
+                    if (next_msg.role == MessageRole.TOOL and 
+                        next_msg.tool_call_id and 
+                        next_msg.tool_call_id in tool_call_ids):
+                        tool_responses.append(next_msg)
+                        tool_call_ids.discard(next_msg.tool_call_id)
+                    # 如果是其他类型的消息，停止收集
+                    elif next_msg.role != MessageRole.TOOL:
+                        break
+                    
+                    j += 1
+                
+                # 添加收集到的TOOL响应
+                fixed_messages.extend(tool_responses)
+                
+                # 跳过已处理的消息
+                i = j
+            else:
+                i += 1
+        
+        return fixed_messages

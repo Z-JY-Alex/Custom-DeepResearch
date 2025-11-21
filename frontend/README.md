@@ -1,268 +1,168 @@
-# Agent流式API前端示例
+# AI助手前端界面
 
-这个文件夹包含了用于连接和使用Agent流式API的前端示例代码和组件。
+这是一个现代化的AI助手前端界面，支持与后端流式API进行实时交互。
 
-## 文件说明
+## 功能特性
 
-### 1. `frontend_example.html`
-完整的HTML页面示例，包含：
-- 🎨 现代化的UI界面
-- 📡 实时流式数据接收
-- 🔧 工具调用监控
-- 📁 文件操作跟踪
-- 📊 Token使用情况显示
-- 🎯 事件类型识别和分类显示
+### 🔄 流式对话
+- **真正的流式输出**：AI回复内容逐字符实时显示，提供流畅的对话体验
+- **实时状态更新**：显示AI执行状态（思考中、工具调用、执行完成等）
+- **工具调用可视化**：清晰展示AI使用的工具和执行结果
 
-**使用方法：**
+### 📁 文件操作展示
+- **文件操作卡片**：当AI操作文件时，显示美观的文件卡片
+- **侧边栏预览**：点击文件卡片可在侧边栏查看文件内容
+- **流式文件内容**：文件内容支持流式显示，实时更新
+
+### 💬 用户交互
+- **智能问答**：当AI需要用户输入时，弹出交互窗口
+- **多种回答类型**：支持文本输入、选择题、确认等多种交互方式
+- **超时处理**：自动处理交互超时情况
+
+### 🎨 现代化UI
+- **响应式设计**：适配桌面和移动设备
+- **流畅动画**：丰富的过渡动画和加载效果
+- **直观图标**：使用Font Awesome图标库
+- **渐变配色**：现代化的紫色渐变主题
+
+## 快速开始
+
+### 1. 启动后端API
+确保后端API服务正在运行：
 ```bash
-# 启动后端API服务
-cd backend
-python api/stream_api.py
-
-# 在浏览器中打开HTML文件
-# 或者使用简单的HTTP服务器
-python -m http.server 8080
-# 然后访问 http://localhost:8080/frontend_example.html
+cd /path/to/deepresearch
+python backend/api/stream_api.py
 ```
+后端将在 `http://localhost:8000` 启动
 
-### 2. `agent_stream_client.js`
-JavaScript客户端库，提供：
-- 🔌 AgentStreamClient 类：核心流式客户端
-- 🎯 AgentEventHandler 类：事件处理器基类
-- 🏭 AgentStreamClientFactory：便捷的工厂函数
-- 📱 支持浏览器和Node.js环境
+### 2. 启动前端服务器
+```bash
+cd frontend
+python server.py
+```
+前端将在 `http://localhost:3000` 启动
 
-**基础使用：**
+### 3. 访问界面
+在浏览器中打开 `http://localhost:3000`
+
+## 使用说明
+
+### 基本对话
+1. 在输入框中输入您的问题或需求
+2. 点击发送按钮或按回车键
+3. AI将开始执行并流式返回结果
+
+### 文件操作
+- 当AI操作文件时，会显示文件操作卡片
+- 点击文件卡片可在右侧边栏查看文件内容
+- 文件内容支持实时更新
+
+### 用户交互
+- 当AI需要您的输入时，会弹出交互窗口
+- 输入回答后点击"提交"按钮
+- 也可以点击"取消"中止交互
+
+## 技术实现
+
+### 流式连接
+- 使用 Fetch API 的 ReadableStream 实现真正的流式连接
+- 支持 Server-Sent Events (SSE) 格式的数据流
+- 自动重连和错误处理
+
+### 事件处理
+支持的事件类型：
+- `agent_start`: Agent开始执行
+- `agent_content`: AI内容输出（流式）
+- `tool_call_start`: 工具调用开始
+- `tool_result_content`: 工具结果输出（流式）
+- `file_operation`: 文件操作事件
+- `user_question`: AI提问用户
+- `agent_finished`: 执行完成
+- `error`: 错误处理
+
+### 流式显示算法
 ```javascript
-// 创建客户端
-const client = new AgentStreamClient({
-    baseUrl: 'http://localhost:8000',
-    onEvent: (event) => {
-        console.log('收到事件:', event.event_type, event.content);
+// 逐字符显示效果
+const typeChar = () => {
+    if (index < chars.length) {
+        textElement.textContent += chars[index];
+        index++;
+        setTimeout(typeChar, 20); // 可调整显示速度
     }
-});
-
-// 执行Agent任务
-await client.execute({
-    query: '制定一个计划，计算1+1的结果',
-    agent_type: 'PlanAgent',
-    max_rounds: 50
-});
+};
 ```
 
-**高级使用（事件处理器）：**
+## 文件结构
+
+```
+frontend/
+├── index.html          # 主页面
+├── app.js             # 核心JavaScript逻辑
+├── server.py          # 简单HTTP服务器
+└── README.md          # 说明文档
+```
+
+## 配置选项
+
+### API配置
+在 `app.js` 中修改API地址：
 ```javascript
-class MyEventHandler extends AgentEventHandler {
-    onAgentContent(event) {
-        document.getElementById('output').textContent += event.content;
-    }
-    
-    onToolResultContent(event) {
-        if (event.is_streaming_file) {
-            document.getElementById('fileContent').textContent += event.content;
-        }
-    }
-}
-
-const handler = new MyEventHandler();
-const client = AgentStreamClientFactory.createClientWithHandler(handler);
+this.apiBaseUrl = 'http://localhost:8000/api/v1';
 ```
 
-### 3. `AgentStreamComponent.jsx`
-React组件，提供：
-- ⚛️ 完整的React Hook集成
-- 🎛️ 可配置的UI组件
-- 📊 实时状态监控
-- 🔄 自动滚动和事件管理
-- 📱 响应式设计
-
-**使用方法：**
-```jsx
-import AgentStreamComponent from './AgentStreamComponent';
-
-function App() {
-    return (
-        <AgentStreamComponent
-            baseUrl="http://localhost:8000"
-            defaultQuery="制定一个计划，计算1+1的结果"
-            onExecutionComplete={(data) => {
-                console.log('执行完成:', data);
-            }}
-        />
-    );
-}
-```
-
-## 事件类型说明
-
-API返回的流式事件包含以下类型：
-
-| 事件类型 | 说明 | 关键字段 |
-|---------|------|----------|
-| `agent_start` | Agent开始执行 | `agent_name`, `query` |
-| `agent_content` | Agent普通内容输出 | `content` |
-| `tool_call_start` | 工具调用开始 | `tool_name` |
-| `tool_args` | 工具参数 | `tool_args`, `is_streaming_file` |
-| `tool_result_start` | 工具结果开始 | `tool_name` |
-| `tool_result_content` | 工具结果内容 | `content`, `is_streaming_file` |
-| `tool_result_end` | 工具结果结束 | `tool_name` |
-| `agent_round` | Agent执行轮次 | `current_round`, `token_usage` |
-| `agent_finished` | Agent执行完成 | `data` (执行统计) |
-| `error` | 错误事件 | `error_message` |
-
-## 流式文件操作
-
-当Agent执行文件操作时，会有特殊的标识：
-
+### 流式显示速度
+调整字符显示间隔：
 ```javascript
-// 检查是否为流式文件操作
-if (event.is_streaming_file) {
-    console.log(`文件操作: ${event.operation_mode} -> ${event.file_path}`);
-    console.log(`文件内容: ${event.content}`);
-}
+setTimeout(typeChar, 20); // 毫秒，数值越小显示越快
 ```
 
-支持的文件操作模式：
-- `write`: 覆盖写入
-- `append`: 追加写入
-- `modify`: 修改指定行
-- `insert`: 插入内容
+### 样式定制
+所有样式都在 `index.html` 的 `<style>` 标签中，可以根据需要修改：
+- 主题颜色：修改渐变色值
+- 字体大小：调整 `font-size` 属性
+- 动画效果：修改 `@keyframes` 规则
 
-## API接口说明
+## 浏览器兼容性
 
-### 执行Agent任务
-```
-POST /api/v1/agent/execute/stream
-Content-Type: application/json
-
-{
-    "query": "任务描述",
-    "agent_type": "PlanAgent",
-    "max_rounds": 80,
-    "stream_file_operations": true,
-    "llm_config": {
-        "api_key": "your_api_key",
-        "base_url": "your_base_url",
-        "max_tokens": 64000
-    }
-}
-```
-
-### 获取活跃会话
-```
-GET /api/v1/agent/sessions
-```
-
-### 健康检查
-```
-GET /api/v1/health
-```
-
-## 开发建议
-
-### 1. 错误处理
-```javascript
-const client = new AgentStreamClient({
-    onError: (error) => {
-        console.error('流式连接错误:', error);
-        // 显示用户友好的错误信息
-        showErrorMessage(error.message);
-    }
-});
-```
-
-### 2. 连接状态管理
-```javascript
-const client = new AgentStreamClient({
-    onConnect: () => {
-        setConnectionStatus('已连接');
-        enableUI();
-    },
-    onDisconnect: () => {
-        setConnectionStatus('已断开');
-        disableUI();
-    }
-});
-```
-
-### 3. 内存管理
-```javascript
-// 限制事件历史数量，避免内存泄漏
-const MAX_EVENTS = 1000;
-if (events.length > MAX_EVENTS) {
-    setEvents(prev => prev.slice(-MAX_EVENTS));
-}
-```
-
-### 4. 性能优化
-```javascript
-// 使用React.memo优化渲染
-const EventItem = React.memo(({ event }) => {
-    return <div>{event.content}</div>;
-});
-
-// 虚拟滚动处理大量事件
-import { FixedSizeList as List } from 'react-window';
-```
-
-## 自定义扩展
-
-### 添加新的事件处理
-```javascript
-class CustomEventHandler extends AgentEventHandler {
-    onCustomEvent(event) {
-        // 处理自定义事件
-    }
-}
-```
-
-### 自定义UI主题
-```css
-.agent-stream-component {
-    --primary-color: #007bff;
-    --success-color: #28a745;
-    --error-color: #dc3545;
-    --background-color: #f8f9fa;
-}
-```
+- Chrome 85+
+- Firefox 80+
+- Safari 14+
+- Edge 85+
 
 ## 故障排除
 
-### 常见问题
+### 连接失败
+1. 检查后端API是否正常运行
+2. 确认API地址配置正确
+3. 检查浏览器控制台错误信息
 
-1. **连接失败**
-   - 检查后端API服务是否启动
-   - 确认baseUrl配置正确
-   - 检查CORS设置
+### 流式显示异常
+1. 检查网络连接稳定性
+2. 确认浏览器支持ReadableStream
+3. 查看控制台是否有JavaScript错误
 
-2. **事件解析失败**
-   - 检查JSON格式是否正确
-   - 确认事件类型是否支持
+### 文件操作不显示
+1. 确认后端返回正确的文件事件
+2. 检查文件路径格式
+3. 验证事件数据结构
 
-3. **文件操作不显示**
-   - 确认`stream_file_operations`为true
-   - 检查`is_streaming_file`字段
+## 开发说明
 
-4. **内存占用过高**
-   - 限制事件历史数量
-   - 定期清理不需要的数据
+### 添加新的事件类型
+1. 在 `handleStreamEvent` 方法中添加新的 case
+2. 实现对应的处理函数
+3. 更新UI显示逻辑
 
-### 调试技巧
+### 自定义样式
+1. 修改CSS变量定义
+2. 添加新的动画效果
+3. 调整响应式断点
 
-```javascript
-// 启用详细日志
-const client = new AgentStreamClient({
-    onEvent: (event) => {
-        console.log('事件详情:', JSON.stringify(event, null, 2));
-    }
-});
-
-// 监控连接状态
-client.addEventListener('statechange', (state) => {
-    console.log('连接状态变化:', state);
-});
-```
+### 扩展功能
+1. 添加更多文件类型支持
+2. 实现消息历史记录
+3. 添加设置面板
 
 ## 许可证
 
-MIT License - 可自由使用和修改。
+MIT License

@@ -13,8 +13,7 @@ from backend.llm.base import BaseLLM, Message, MessageRole
 from backend.prompts.content_analysis import CONTENT_ANALYSIS_SYSTEMP_PROMPT, CONTENT_ANALYSIS_USER_PROMPT
 from backend.tools.shell_execute import ShellExecuteTool
 
-CURRUENT_TIME = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-WORKDIR = str(Path(__file__).parent.parent.parent.absolute())
+
 
 class ContentAnalyzerAgent(BaseAgent):
     """
@@ -35,20 +34,26 @@ class ContentAnalyzerAgent(BaseAgent):
         description="Agent描述"
     )
     
-    # 默认指令
-    instruction: Optional[str] = Field(
-        default=CONTENT_ANALYSIS_SYSTEMP_PROMPT.format(CURRUENT_TIME=CURRUENT_TIME, WORKDIR=WORKDIR),
-        description="Agent指令"
-    )
+    # # 默认指令
+    # instruction: Optional[str] = Field(
+    #     default=CONTENT_ANALYSIS_SYSTEMP_PROMPT.format(CURRUENT_TIME=CURRUENT_TIME, WORKDIR=WORKDIR),
+    #     description="Agent指令"
+    # )
     
     # 工具实例
-    shell_tool: Optional[ShellExecuteTool] = Field(default=None, description="文件保存工具")
+    shell_tool: Optional[ShellExecuteTool] = Field(default=None, description="shell执行工具")
 
 
     def __init__(self, **kwargs):
         """初始化分析总结代理"""
         super().__init__(**kwargs)
         
+        if self.instruction is None:
+            self.instruction = CONTENT_ANALYSIS_SYSTEMP_PROMPT.format(
+                CURRENT_TIME=self.current_time, 
+                WORKDIR=self.work_dir
+            )
+
         # 初始化工具
         self.shell_tool = ShellExecuteTool()
 

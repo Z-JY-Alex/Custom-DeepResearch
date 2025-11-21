@@ -10,9 +10,15 @@ _PLANNING_TOOL_DESCRIPTION = """
 该工具提供创建计划、更新计划步骤和跟踪进度的功能。
 使用该工具时，必须在完成每个步骤后进行标记（mark_step），
 然后再继续执行下一个步骤，以确保计划的执行顺序和状态可追踪。
+可调度的协作代理包括：
+- WEB_SEARCH：负责检索和整理最新的外部信息与数据；
+- CONTENT_ANALYSIS：负责阅读、分析已有内容并输出结构化结论；
+- TEST_CASE_GENERATE：负责设计测试用例，帮助验证方案或代码；
+- CODE_GENERATE：负责编写或补全代码实现具体功能。
+- SUMMARY_REPORT: 负责总结任务成果并生成面向用户的成果报告。
 """
 
-AGENT_LIST = ["WEB_SEARCH", "CONTENT_ANALYSIS", "TEST_CASE_GENERATE", "CODE_GENERATE"]
+AGENT_LIST = ["WEB_SEARCH", "CONTENT_ANALYSIS", "TEST_CASE_GENERATE", "CODE_GENERATE", "SUMMARY_REPORT"]
 
 class PlanningTool(BaseTool):
     """
@@ -60,7 +66,7 @@ class PlanningTool(BaseTool):
                 },
             },
             "steps_type": {
-                "description": "steps 中每个步骤的类型。create 命令必需。必须与 steps 的嵌套结构匹配。格式：[{'步骤总结描述1': [type1, type2, ...]}, {'步骤总结描述2': [type1, type2, ...]}]",
+                "description": "steps 中每个步骤的类型。create 命令必需。⚠️ 重要：每个组中的类型数量必须与对应的步骤数量完全匹配！格式：[{'步骤总结描述1': [type1, type2, ...]}, {'步骤总结描述2': [type1, type2, ...]}]。例如：如果某组有3个步骤，则必须提供3个对应的类型。",
                 "type": "array",
                 "items": {
                     "type": "object",
@@ -91,7 +97,7 @@ class PlanningTool(BaseTool):
         "required": ["command"],
         "additionalProperties": False,
     }
-
+    session_id: str = None
     plans: dict = {}  # Dictionary to store plans by plan_id
     _current_plan_id: Optional[str] = None  # Track the current active plan
     
@@ -548,10 +554,10 @@ class PlanningTool(BaseTool):
 
         # 获取项目根目录（从当前文件向上两级：backend/tools/ -> backend/ -> project root）
         project_root = Path(__file__).parent.parent.parent
-        output_dir = project_root / "output"
+        output_dir = project_root / f"{self.session_id}"
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        output_file = output_dir / f"{plan['title']}.md"
+        output_file = output_dir / f"TODO.md"
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(output)
         

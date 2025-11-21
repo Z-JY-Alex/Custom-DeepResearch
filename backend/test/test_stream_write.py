@@ -7,27 +7,29 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 
 from backend.llm.llm import OpenAILLM, LLMConfig
 
-from backend.tools.stream_file_write import StreamFileSaveTool
+from backend.tools.file_operations import FileReadTool
+from backend.tools.stream_file_operations import StreamFileOperationTool
 from backend.llm.base import LLMConfig, Message, MessageRole
 
 
 async def test_file_write_tool():
 
-    file_tool = StreamFileSaveTool(base_dir="./test_output")
+    file_read_tool = FileReadTool()
+    file_tool = StreamFileOperationTool()
 
     llm_config = LLMConfig(
         api_key="amep3rwbqWIpFoOnKpZw",
         base_url="https://genaiapish-zy2cw9s.xiaosuai.com/v1",
         max_tokens=64000,
         stream=True,
-        tools=[file_tool]
+        tools=[file_tool, file_read_tool]
     )
 
     llm = OpenAILLM(llm_config)
 
     user_msg = Message(
         role=MessageRole.USER,
-        content="帮我详细介绍一下马克思主义的主要原理，要求流式写入文件",
+        content=f"修改文件使其输出'Hello, ChatGPT!'，如果代码格式有错，帮我进行修改，文件路径：/mnt/e/zhihuishu/deepresearch/test_indent_sample.py，",
         timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         metadata={"current_round": 0}
     )

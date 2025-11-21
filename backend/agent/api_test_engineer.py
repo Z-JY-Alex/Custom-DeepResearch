@@ -43,11 +43,11 @@ class ApiTestEngineerAgent(BaseAgent):
         description="Agent描述"
     )
     
-    # 默认指令 - 使用用户提供的prompt
-    instruction: Optional[str] = Field(
-        default=API_TEST_SYSTEM_PROMPT,
-        description="Agent指令"
-    )
+    # # 默认指令 - 使用用户提供的prompt
+    # instruction: Optional[str] = Field(
+    #     default=API_TEST_SYSTEM_PROMPT,
+    #     description="Agent指令"
+    # )
     
     # 工具实例
     shell_tool: Optional[ShellExecuteTool] = Field(default=None, description="Shell执行工具")  
@@ -56,6 +56,13 @@ class ApiTestEngineerAgent(BaseAgent):
         """初始化接口自动化测试工程师Agent"""
         super().__init__(**kwargs)
         
+        if self.instruction is None:
+            self.instruction = API_TEST_SYSTEM_PROMPT.format(
+                CURRENT_TIME=self.current_time, 
+                WORKDIR=self.work_dir
+            )
+        
+
         # 初始化工具
         self.shell_tool = ShellExecuteTool()
         

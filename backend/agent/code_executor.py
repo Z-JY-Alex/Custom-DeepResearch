@@ -15,9 +15,6 @@ from backend.tools.shell_execute import ShellExecuteTool
 from backend.tools.code_execute import CodeExecuteTool
 from backend.prompts.code_exec import CODE_EXEC_SYSTEMP_PROMPT, CODE_EXEC_USER_PROMPT
 
-CURRUENT_TIME = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-WORKDIR = str(Path(__file__).parent.parent.parent.absolute())
-
 
 class CodeExecutorAgent(BaseAgent):
     """
@@ -37,11 +34,11 @@ class CodeExecutorAgent(BaseAgent):
         description="Agent描述"
     )
     
-    # 默认指令
-    instruction: Optional[str] = Field(
-        default=CODE_EXEC_SYSTEMP_PROMPT.format(CURRUENT_TIME=CURRUENT_TIME, WORKDIR=WORKDIR),
-        description="Agent指令"
-    )
+    # # 默认指令
+    # instruction: Optional[str] = Field(
+    #     default=CODE_EXEC_SYSTEMP_PROMPT.format(CURRUENT_TIME=CURRUENT_TIME, WORKDIR=WORKDIR),
+    #     description="Agent指令"
+    # )
     
     # 工具实例
     shell_execute_tool: Optional[ShellExecuteTool] = Field(default=None, description="Shell命令执行工具")
@@ -54,6 +51,12 @@ class CodeExecutorAgent(BaseAgent):
         """初始化文件代码执行代理"""
         super().__init__(**kwargs)
         
+        if self.instruction is None:
+            self.instruction = CODE_EXEC_SYSTEMP_PROMPT.format(
+                CURRENT_TIME=self.current_time, 
+                WORKDIR=self.work_dir
+            )
+
         # 初始化工具
         self.shell_execute_tool = ShellExecuteTool()
         # self.code_execute_tool = CodeExecuteTool()

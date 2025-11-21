@@ -112,20 +112,122 @@ class TavilySearch(BaseTool):
                 "enum": COUNTRIES,
                 "default": "china"
             },
+            "include_images": {
+                "type": "boolean",
+                "description": "是否在搜索结果中包含图片。",
+                "default": True,
+            },
+            "include_image_descriptions": {
+                "type": "boolean",
+                "description": "是否为图片生成描述信息。",
+                "default": True,
+            }
         },
         "required": ["query"],
     }
+    parallel: bool = True
    
 
+    def _format_results_for_user(self, response: Dict) -> str:
+        """将搜索结果格式化为用户友好的 Markdown 格式（仅标题和URL）"""
+        if isinstance(response, str):  # 错误信息
+            return response
+
+        markdown_content = ""
+
+        # 处理搜索结果 - 仅标题和URL
+        results = response.get("results", [])
+        if results:
+            markdown_content += "## 搜索结果\n\n"
+            for i, result in enumerate(results, 1):
+                title = result.get("title", "无标题")
+                url = result.get("url", "")
+                markdown_content += f"{i}. [{title}]({url})\n"
+
+        return markdown_content
+
+    def _format_results_to_markdown(self, response: Dict) -> str:
+        """将搜索结果格式化为完整的 Markdown 格式（包含所有详细信息）"""
+        if isinstance(response, str):  # 错误信息
+            return response
+
+        markdown_content = ""
+
+        # 处理搜索结果 - 完整内容
+        results = response.get("results", [])
+        if results:
+            markdown_content += "## 相关内容\n\n"
+            for i, result in enumerate(results, 1):
+                title = result.get("title", "无标题")
+                url = result.get("url", "")
+                content = result.get("content", "")
+                score = result.get("score", "")
+
+                markdown_content += f"### {i}. [{title}]({url})\n"
+                if score:
+                    markdown_content += f"**相关度**: {score}\n"
+                if content:
+                    markdown_content += f"**内容**: {content}\n"
+                markdown_content += "\n"
+
+        # 处理图片结果
+        images = response.get("images", [])
+        if images:
+            markdown_content += "\n## 相关图片\n\n"
+            for i, image in enumerate(images, 1):
+                image_url = image.get("url", "")
+                image_title = image.get("title", f"图片 {i}")
+                image_description = image.get("description", "")
+
+                markdown_content += f"### {image_title}\n"
+                if image_url:
+                    markdown_content += f"**链接**: {image_url}\n"
+
+                if image_description:
+                    markdown_content += f"**描述**: {image_description}\n"
+
+                markdown_content += "\n"
+
+        return markdown_content
+
     async def execute(self, **kwargs):
-        
-        client = AsyncTavilyClient("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")
-        input_param = {**kwargs, "include_answer":"advanced"}
+
+        client = AsyncTavilyClient("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")
+
+        if "include_images" not in kwargs:
+            kwargs["include_images"] = True
+        if "include_image_descriptions" not in kwargs:
+            kwargs["include_image_descriptions"] = True
+        # 构建搜索参数
+        input_param = {**kwargs, "include_answer": "advanced"}
+
         try:
             response = await client.search(**input_param)
-            return response
+
+            # 检查响应是否有效
+            if not response:
+                return ToolCallResult(
+                    tool_call_id="",
+                    error="搜索未返回任何结果"
+                )
+
+            # 生成用户友好的结果（仅标题和URL）
+            user_friendly_result = self._format_results_for_user(response)
+
+            # 生成完整的内部结果（包含所有详细信息）
+            internal_result = self._format_results_to_markdown(response)
+
+            return ToolCallResult(
+                tool_call_id="",
+                user_result=user_friendly_result,
+                result=internal_result
+            )
         except Exception as e:
-            return f"Tavily Search API 调用失败: {str(e)}"
+            error_msg = f"Tavily Search API 调用失败: {str(e)}"
+            return ToolCallResult(
+                tool_call_id="",
+                error=error_msg
+            )
 
         
         

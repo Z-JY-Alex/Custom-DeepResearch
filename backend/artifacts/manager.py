@@ -24,13 +24,13 @@ class ArtifactManager:
     - 创建工件
     - 显示工件
     
-    所有数据存储在本地文件系统中，包括：
-    - 工件内容存储在 {storage_path}/content/ 目录
-    - 工件元数据存储在 {storage_path}/metadata/ 目录
+    所有数据存储在本地文件系统中：
+    - 工件内容存储在 {storage_path} 目录
     """
     
     def __init__(
         self, 
+        session_id: str,
         llm: Optional[BaseLLM] = None,
         storage_path: str = "./output/artifacts_storage"
     ):
@@ -41,17 +41,19 @@ class ArtifactManager:
             llm: LLM实例，用于生成摘要
             storage_path: 工件存储根路径
         """
+        self.session_id = session_id
         self.llm = llm
-        self.storage_path = Path(storage_path)
+        if self.session_id:
+            self.storage_path = Path(f"{self.session_id}/artifacts_storage")
+        else:
+            self.storage_path = Path(storage_path)
         self.artifacts_content = []
         
         self._init_storage()
     
     def _init_storage(self) -> None:
         """初始化存储目录和索引文件"""
-        self.storage_path.mkdir(exist_ok=True)
-        (self.storage_path / "content").mkdir(exist_ok=True)
-        (self.storage_path / "metadata").mkdir(exist_ok=True)
+        self.storage_path.mkdir(parents=True, exist_ok=True)
     
     def _determine_file_size(self, size_bytes: int) -> ArtifactFileSize:
         """

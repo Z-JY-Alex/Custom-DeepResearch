@@ -16,9 +16,6 @@ from backend.prompts.plan_ai_test import PLANNER_INSTRUCTION, PLAN_USER_PROMPT
 from backend.utils.history import save_history_to_file
 from pathlib import Path
 
-CURRUENT_TIME = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-# 获取项目根目录（从当前文件向上三级：backend/agent/ -> backend/ -> project root）
-WORKDIR = str(Path(__file__).parent.parent.parent.absolute())
 
 
 class PlanAgent(BaseAgent):
@@ -40,8 +37,7 @@ class PlanAgent(BaseAgent):
     )
     
     # 设置默认指令
-    instruction: str = Field(default=PLANNER_INSTRUCTION.format(CURRUENT_TIME=CURRUENT_TIME, WORKDIR=WORKDIR), \
-                                description="用户自定义prompt, 代替base_prompt")
+    instruction: str = Field(default=None, description="用户自定义prompt, 代替base_prompt")
     
     planning_tool: Optional[PlanningTool] = Field(default=None, description="Tavily搜索工具实例")
     agent_choices_tool: Optional[SubAgentExecute] = Field(default=None, description="子代理选择工具实例")
@@ -53,9 +49,16 @@ class PlanAgent(BaseAgent):
         """初始化计划代理"""
         super().__init__(**kwargs)
         
+        if self.instruction is None:
+            self.instruction = PLANNER_INSTRUCTION.format(
+                CURRENT_TIME=self.current_time, 
+                WORKDIR=self.work_dir
+            )
+
         # 添加计划工具
         self.planning_tool = PlanningTool()
         self.agent_choices_tool = SubAgentExecute(
+            session_id=self.session_id,
             llm_config=self.llm_config,
             memory=self.memory,
             artifact_manager=self.artifact_manager,
@@ -162,7 +165,8 @@ class PlanAgent(BaseAgent):
         
         async for x in self._run():
             yield x
-            
+            logger.opt(raw=True).info(x)
+        
         # 执行完成后保存历史记录
         
             

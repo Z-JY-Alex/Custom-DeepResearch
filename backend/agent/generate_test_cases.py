@@ -12,8 +12,6 @@ from backend.agent.schema import AgentState
 from backend.llm.base import BaseLLM, Message, MessageRole, LLMConfig
 from backend.prompts.test_cases import TEST_CASES_SYSTEM_PROMPT, TEST_CASES_USER_PROMPT
 
-CURRUENT_TIME = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-WORKDIR = str(Path(__file__).parent.parent.parent.absolute())
 
 
 class TestCasesGeneratorAgent(BaseAgent):
@@ -36,10 +34,10 @@ class TestCasesGeneratorAgent(BaseAgent):
     )
     
     # 默认指令
-    instruction: Optional[str] = Field(
-        default=TEST_CASES_SYSTEM_PROMPT.format(CURRUENT_TIME=CURRUENT_TIME, WORKDIR=WORKDIR),
-        description="Agent指令"
-    )
+    # instruction: Optional[str] = Field(
+    #     default=TEST_CASES_SYSTEM_PROMPT.format(CURRUENT_TIME=CURRUENT_TIME, WORKDIR=WORKDIR),
+    #     description="Agent指令"
+    # )
     
     # 工具实例
     # shell_tool: Optional[ShellExecuteTool] = Field(default=None, description="Shell执行工具")
@@ -53,6 +51,12 @@ class TestCasesGeneratorAgent(BaseAgent):
         """初始化测试用例生成代理"""
         super().__init__(**kwargs)
         
+        if self.instruction is None:
+            self.instruction = TEST_CASES_SYSTEM_PROMPT.format(
+                CURRENT_TIME=self.current_time, 
+                WORKDIR=self.work_dir
+            )
+
         # 初始化工具
         # self.shell_tool = ShellExecuteTool()
         

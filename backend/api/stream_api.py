@@ -22,66 +22,46 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from loguru import logger
+import traceback
+import os
 
-from backend.agent.planner_ai_test import PlanAgent
-from backend.agent.search import SearchAgent
+# 配置日志：保存到 logs/ 文件夹
+logs_dir = project_root / "logs"
+logs_dir.mkdir(exist_ok=True)
+
+# 移除默认的控制台处理器（如果需要）
+logger.remove()
+
+# 添加控制台输出（使用格式化）
+logger.add(
+    sys.stderr,
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    level="INFO"
+)
+
+# 添加文件输出：按日期轮转
+logger.add(
+    logs_dir / "stream_api_{time:YYYY-MM-DD}.log",
+    rotation="00:00",  # 每天午夜轮转
+    retention="30 days",  # 保留30天
+    compression="zip",  # 压缩旧日志
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+    level="INFO",
+    encoding="utf-8"
+)
+
+# from backend.agent.planner_ai_test import PlanAgent
+from backend.agent.general_agent.planner import PlanAgent
+from backend.agent.general_agent.search import SearchAgent
 from backend.agent.content_analyzer import ContentAnalyzerAgent
 from backend.agent.generate_test_cases import TestCasesGeneratorAgent
 from backend.agent.code_executor import CodeExecutorAgent
-from backend.llm.base import LLMConfig
+from backend.llm.base import LLMConfig, Message, MessageRole
 from backend.memory.base import BaseMemory
 from backend.artifacts.manager import ArtifactManager
-from backend.interaction.manager import interaction_manager
-
-
-class StreamEventType(str, Enum):
-    """流式事件类型"""
-    AGENT_START = "agent_start"           # Agent开始执行
-    AGENT_CONTENT = "agent_content"       # Agent普通内容输出
-    TOOL_CALL_START = "tool_call_start"   # 工具调用开始
-    TOOL_ARGS = "tool_args"               # 工具参数
-    TOOL_RESULT_START = "tool_result_start"  # 工具结果开始
-    TOOL_RESULT_CONTENT = "tool_result_content"  # 工具结果内容
-    TOOL_RESULT_END = "tool_result_end"   # 工具结果结束
-    FILE_OPERATION = "file_operation"     # 文件操作事件
-    AGENT_ROUND = "agent_round"           # Agent执行轮次信息
-    AGENT_FINISHED = "agent_finished"     # Agent执行完成
-    ERROR = "error"                       # 错误事件
-    HEARTBEAT = "heartbeat"               # 心跳事件
-    # 用户交互相关事件
-    USER_QUESTION = "user_question"       # AI询问用户
-    USER_ANSWER_RECEIVED = "user_answer_received"  # 收到用户回答
-    INTERACTION_TIMEOUT = "interaction_timeout"    # 交互超时
-
-
-class StreamEvent(BaseModel):
-    """流式事件数据结构"""
-    event_type: StreamEventType = Field(..., description="事件类型")
-    event_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="事件ID")
-    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat(), description="时间戳")
-    
-    # 基础数据
-    content: Optional[str] = Field(default=None, description="文本内容")
-    data: Optional[Dict[str, Any]] = Field(default=None, description="结构化数据")
-    
-    # Agent信息
-    agent_id: Optional[str] = Field(default=None, description="Agent ID")
-    agent_name: Optional[str] = Field(default=None, description="Agent名称")
-    current_round: Optional[int] = Field(default=None, description="当前执行轮次")
-    
-    # 工具调用信息
-    tool_name: Optional[str] = Field(default=None, description="工具名称")
-    tool_call_id: Optional[str] = Field(default=None, description="工具调用ID")
-    tool_args: Optional[Dict[str, Any]] = Field(default=None, description="工具参数")
-    
-    # 文件操作信息
-    file_path: Optional[str] = Field(default=None, description="文件路径")
-    operation_mode: Optional[str] = Field(default=None, description="操作模式")
-    is_streaming_file: Optional[bool] = Field(default=False, description="是否为流式文件操作")
-    
-    # 状态信息
-    token_usage: Optional[Dict[str, Any]] = Field(default=None, description="Token使用情况")
-    error_message: Optional[str] = Field(default=None, description="错误信息")
+from backend.agent.general_agent.base import AgentStreamPayload, AgentEventType
+from backend.agent.general_agent.summary import SummaryAgent
+from backend.agent.schema import AgentState
 
 
 class AgentExecuteRequest(BaseModel):
@@ -91,6 +71,7 @@ class AgentExecuteRequest(BaseModel):
     llm_config: Optional[Dict[str, Any]] = Field(default=None, description="LLM配置")
     max_rounds: Optional[int] = Field(default=80, description="最大执行轮数")
     stream_file_operations: bool = Field(default=True, description="是否启用流式文件操作")
+    session_id: Optional[str] = Field(default=None, description="复用会话ID（如为空则新建会话）")
 
 
 class UserAnswerRequest(BaseModel):
@@ -112,23 +93,19 @@ class StreamAPIHandler:
         # 确保配置中有必要的字段
         logger.debug(f"创建Agent，配置: {llm_config}")
         
-        # 确保max_tokens不会超过模型限制（65536）
-        if "max_tokens" in llm_config and llm_config["max_tokens"] > 65536:
-            logger.warning(f"max_tokens ({llm_config['max_tokens']}) 超过模型限制65536，将自动调整为65536")
-            llm_config["max_tokens"] = 65536
-        
         llm_config_obj = LLMConfig(**llm_config)
         # 验证配置
         if not llm_config_obj.api_key:
             logger.warning(f"LLM配置中的api_key为空，配置对象: {llm_config_obj}")
         memory = BaseMemory()
-        artifact_manager = ArtifactManager()
+        artifact_manager = ArtifactManager(session_id=session_id)
         
         agent_maps = {
             "WEB_SEARCH": SearchAgent,
             "CONTENT_ANALYSIS": ContentAnalyzerAgent,
             "TEST_CASE_GENERATE": TestCasesGeneratorAgent,
-            "CODE_GENERATE": CodeExecutorAgent
+            "CODE_GENERATE": CodeExecutorAgent,
+            "SUMMARY_REPORT": SummaryAgent
         }
         
         if agent_type == "PlanAgent":
@@ -136,335 +113,318 @@ class StreamAPIHandler:
                 llm_config=llm_config_obj,
                 agent_maps=agent_maps,
                 memory=memory,
-                artifact_manager=artifact_manager
+                artifact_manager=artifact_manager,
+                session_id=session_id
             )
-            # 设置交互管理器和会话ID
-            agent.interaction_manager = interaction_manager
-            agent.session_id = session_id
+            
             return agent
         else:
             raise ValueError(f"不支持的Agent类型: {agent_type}")
     
-    async def parse_agent_output(self, chunk: str, session_info: Dict[str, Any]) -> AsyncGenerator[StreamEvent, None]:
-        """解析Agent输出并转换为结构化事件"""
-        agent = session_info["agent"]
-        current_state = session_info.get("current_state", "content")
-        
-        # 检测工具调用开始
-        if "<TOOL_CALL>" in chunk:
-            tool_name = chunk.split("<TOOL_CALL>")[1].split("</TOOL_CALL>")[0].strip()
-            session_info["current_state"] = "tool_call"
-            session_info["current_tool"] = tool_name
-            
-            yield StreamEvent(
-                event_type=StreamEventType.TOOL_CALL_START,
-                agent_id=agent.agent_id,
-                agent_name=agent.agent_name,
-                current_round=agent.current_round,
-                tool_name=tool_name,
-                content=f"开始执行工具: {tool_name}"
-            )
-            return
-        
-        # 检测工具参数
-        if "<TOOL_ARGS>" in chunk:
-            args_content = chunk.split("<TOOL_ARGS>")[1].split("</TOOL_ARGS>")[0].strip()
-            try:
-                tool_args = json.loads(args_content) if args_content else {}
-            except:
-                tool_args = {"raw_args": args_content}
-            
-            # 检查是否为文件操作
-            is_file_op = session_info.get("current_tool") == "stream_file_operation"
-            file_path = tool_args.get("filepath") if is_file_op else None
-            operation_mode = tool_args.get("operation_mode") if is_file_op else None
-            
-            yield StreamEvent(
-                event_type=StreamEventType.TOOL_ARGS,
-                agent_id=agent.agent_id,
-                agent_name=agent.agent_name,
-                current_round=agent.current_round,
-                tool_name=session_info.get("current_tool"),
-                tool_args=tool_args,
-                file_path=file_path,
-                operation_mode=operation_mode,
-                is_streaming_file=is_file_op,
-                content=f"工具参数: {args_content[:200]}..."
-            )
-            return
-        
-        # 检测工具结果开始
-        if "<TOOL_RESULT>" in chunk:
-            session_info["current_state"] = "tool_result"
-            yield StreamEvent(
-                event_type=StreamEventType.TOOL_RESULT_START,
-                agent_id=agent.agent_id,
-                agent_name=agent.agent_name,
-                current_round=agent.current_round,
-                tool_name=session_info.get("current_tool"),
-                content="工具执行结果:"
-            )
-            return
-        
-        # 检测工具结果结束
-        if "</TOOL_RESULT>" in chunk:
-            session_info["current_state"] = "content"
-            yield StreamEvent(
-                event_type=StreamEventType.TOOL_RESULT_END,
-                agent_id=agent.agent_id,
-                agent_name=agent.agent_name,
-                current_round=agent.current_round,
-                tool_name=session_info.get("current_tool"),
-                content="工具执行完成"
-            )
-            session_info["current_tool"] = None
-            return
-        
-        # 处理普通内容
-        if chunk.strip():
-            event_type = StreamEventType.TOOL_RESULT_CONTENT if current_state == "tool_result" else StreamEventType.AGENT_CONTENT
-            
-            # 检查是否为文件操作内容
-            is_file_streaming = (
-                current_state == "tool_result" and 
-                session_info.get("current_tool") == "stream_file_operation" and
-                agent.file_operation_tool and 
-                agent.file_operation_tool.is_active()
-            )
-            
-            yield StreamEvent(
-                event_type=event_type,
-                agent_id=agent.agent_id,
-                agent_name=agent.agent_name,
-                current_round=agent.current_round,
-                tool_name=session_info.get("current_tool") if current_state == "tool_result" else None,
-                content=chunk,
-                is_streaming_file=is_file_streaming,
-                file_path=agent.file_operation_tool._filepath.name if is_file_streaming and agent.file_operation_tool._filepath else None,
-                operation_mode=agent.file_operation_tool.get_operation_mode() if is_file_streaming else None
-            )
     
     async def execute_agent_stream(self, request: AgentExecuteRequest) -> AsyncGenerator[str, None]:
         """执行Agent并返回流式响应"""
-        session_id = str(uuid.uuid4())
+        # 如果传入了session_id且会话存在，则复用；否则新建会话
+        session_id = request.session_id or str(uuid.uuid4())
         
         try:
-            # 创建Agent
-            llm_config = request.llm_config or {
-                "model_name": "MaaS_Sonnet_4",
-                "api_key": "amep3rwbqWIpFoOnKpZw",
-                "base_url": "https://genaiapish-zy2cw9s.xiaosuai.com/v1",
-                "max_tokens": 64000
-            }
-            
-            agent = self.create_agent(request.agent_type, llm_config, session_id)
-            if request.max_rounds:
-                agent.max_rounds = request.max_rounds
-            
-            # 初始化会话信息
-            session_info = {
-                "agent": agent,
-                "current_state": "content",
-                "current_tool": None,
-                "start_time": datetime.now()
-            }
-            self.active_sessions[session_id] = session_info
-            
-            # 发送开始事件
-            start_event = StreamEvent(
-                event_type=StreamEventType.AGENT_START,
-                agent_id=agent.agent_id,
-                agent_name=agent.agent_name,
-                current_round=0,
-                content=f"开始执行 {request.agent_type}",
-                data={"session_id": session_id, "query": request.query}
-            )
-            yield f"data: {start_event.model_dump_json()}\n\n"
-            
-            # 执行Agent并处理输出
-            async for chunk in agent.run(request.query):
-                # 解析输出并生成事件
-                async for event in self.parse_agent_output(chunk, session_info):
-                    yield f"data: {event.model_dump_json()}\n\n"
-                
-                # 定期发送轮次信息
-                if agent.current_round != session_info.get("last_round", 0):
-                    session_info["last_round"] = agent.current_round
-                    round_event = StreamEvent(
-                        event_type=StreamEventType.AGENT_ROUND,
-                        agent_id=agent.agent_id,
-                        agent_name=agent.agent_name,
-                        current_round=agent.current_round,
-                        content=f"执行轮次: {agent.current_round}",
-                        token_usage=agent.get_token_usage_info()
+            # 确定Agent与消息历史
+            if request.session_id and request.session_id in self.active_sessions:
+                # 复用已有会话
+                logger.info(f"[会话] 复用已有会话: {session_id}")
+                session_info = self.active_sessions[session_id]
+                agent = session_info["agent"]
+                # 从agent内存中取历史
+                try:
+                    history_messages = agent.memory.states.get(agent.agent_id, {}).get("all_history", [])
+                except Exception:
+                    history_messages = []
+                # 追加当前用户输入
+                history_messages = list(history_messages)
+                history_messages.append(
+                    Message(
+                        role=MessageRole.USER,
+                        content=request.query,
+                        timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        metadata={"current_round": agent.current_round}
                     )
-                    yield f"data: {round_event.model_dump_json()}\n\n"
-            
-            # 发送完成事件
-            finish_event = StreamEvent(
-                event_type=StreamEventType.AGENT_FINISHED,
-                agent_id=agent.agent_id,
-                agent_name=agent.agent_name,
-                current_round=agent.current_round,
-                content="Agent执行完成",
-                data={
-                    "session_id": session_id,
-                    "total_rounds": agent.current_round,
-                    "execution_time": (datetime.now() - session_info["start_time"]).total_seconds(),
-                    "final_state": agent.state.value
+                )
+                messages_to_run = history_messages
+                logger.info(f"[会话] 用户输入: {request.query[:100]}{'...' if len(request.query) > 100 else ''}")
+            else:
+                # 新建会话与Agent
+                logger.info(f"[会话] 创建新会话: {session_id}, Agent类型: {request.agent_type}")
+                llm_config = {
+                    "model_name": "MaaS_Sonnet_4",
+                    "api_key": "amep3rwbqWIpFoOnKpZw",
+                    "base_url": "https://genaiapish-zy2cw9s.xiaosuai.com/v1",
+                    "max_tokens": 32000
                 }
-            )
-            yield f"data: {finish_event.model_dump_json()}\n\n"
+                agent = self.create_agent(request.agent_type, llm_config, session_id)
+                if request.max_rounds:
+                    agent.max_rounds = request.max_rounds
+                # 构造首条用户消息
+                messages_to_run = [
+                    Message(
+                        role=MessageRole.USER ,
+                        content=request.query + f"当前时间： {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                        timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        metadata={"current_round": agent.current_round}
+                    )
+                ]
+                # 初始化会话信息
+                session_info = {
+                    "agent": agent,
+                    "current_state": "content",
+                    "current_tool": None,
+                    "start_time": datetime.now()
+                }
+                self.active_sessions[session_id] = session_info
+                logger.info(f"[会话] 用户查询: {request.query[:100]}{'...' if len(request.query) > 100 else ''}")
+            
+            logger.info(f"[流式执行] 开始执行Agent，轮次限制: {agent.max_rounds}")
+            
+            # 直接透传Agent的JSON事件
+            async for chunk in agent.run(messages_to_run):
+                # 格式化日志输出，保持流式显示风格
+                try:
+                    event_data = json.loads(chunk)
+                    event_type = event_data.get("event_type", "unknown")
+                    tool_name = event_data.get("tool", {}).get("name") if isinstance(event_data.get("tool"), dict) else None
+                    content = event_data.get("content", "")
+                    agent_name = event_data.get("agent_name")
+                    current_round = event_data.get("current_round")
+                    
+                    # 根据事件类型格式化日志
+                    if event_type == "agent_content":
+                        # Agent内容输出
+                        logger.debug(f"{content}")
+                    elif event_type == "tool_call_start":
+                        logger.debug(f"[工具调用] {agent_name} -> 开始执行工具: {tool_name}")
+                    elif event_type == "tool_args":
+                        tool_args = event_data.get("tool_args", {})
+                        logger.debug(f"[工具参数] {agent_name} -> {tool_name}: {json.dumps(tool_args, ensure_ascii=False)}")
+                    elif event_type == "tool_result_content":
+                        logger.debug(f"[工具结果] {agent_name} -> {tool_name}: {content}")
+                    elif event_type == "error":
+                        error_msg = event_data.get("error_message", "")
+                        logger.error(f"[错误] {agent_name} -> {tool_name if tool_name else 'Agent'}: {error_msg}")
+                    elif event_type == "ask_user":
+                        logger.debug(f"[用户交互] {agent_name} -> 询问用户: {content}")
+                    else:
+                        logger.debug(f"[事件] {event_type}: {chunk}")
+                except json.JSONDecodeError:
+                    # 如果不是JSON格式，直接输出原始内容
+                    logger.info(f"[流式输出] {chunk}")
+                logger.info(f"{chunk} \n\n")
+                # 直接作为SSE数据输出，不再包装为 StreamEvent
+                yield f"data: {chunk}\n\n"
+            
+            # 流式执行完成
+            execution_time = (datetime.now() - session_info["start_time"]).total_seconds()
+            logger.info(f"[流式执行] Agent执行完成，会话: {session_id}, 耗时: {execution_time:.2f}秒")
             
         except Exception as e:
-            logger.error(f"Agent执行失败: {e}")
-            error_event = StreamEvent(
-                event_type=StreamEventType.ERROR,
-                content=f"执行失败: {str(e)}",
+            tb = traceback.format_exc()
+            logger.error(f"[错误] Agent执行失败: {str(e)}")
+            logger.error(f"[错误] Traceback:\n{tb}")
+            error_event = AgentStreamPayload(
+                event_type=AgentEventType.ERROR,
+                agent_id=None,
+                agent_name=None,
+                session_id=session_id,
+                current_round=None,
                 error_message=str(e),
-                data={"session_id": session_id}
+                data={"session_id": session_id, "traceback": tb}
             )
-            yield f"data: {error_event.model_dump_json()}\n\n"
+            logger.info(f"[流式输出] 错误事件已发送")
+            yield f"data: {error_event.to_json()}\n\n"
         
-        finally:
-            # 清理会话
-            if session_id in self.active_sessions:
-                del self.active_sessions[session_id]
-
 
 # 创建API实例
 app = FastAPI(title="Agent流式执行API", version="1.0.0")
 stream_handler = StreamAPIHandler()
 
+# 添加 CORS 中间件支持（如果需要）
+from fastapi.middleware.cors import CORSMiddleware
 
-@app.post("/api/v1/agent/execute/stream")
-async def execute_agent_stream(request: AgentExecuteRequest):
-    """
-    流式执行Agent
-    
-    返回Server-Sent Events (SSE)格式的流式响应
-    每个事件包含完整的JSON数据，前端可以根据event_type进行不同处理
-    """
-    return StreamingResponse(
-        stream_handler.execute_agent_stream(request),
-        media_type="text/plain",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "*",
-        }
-    )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
-@app.post("/api/v1/agent/user-answer")
-async def submit_user_answer(request: UserAnswerRequest):
+@app.post("/api/v1/agent/stream")
+async def api_agent_stream(request: AgentExecuteRequest):
+    """启动Agent流式执行，SSE输出Agent的统一JSON事件"""
+    generator = stream_handler.execute_agent_stream(request)
+    return StreamingResponse(generator, media_type="text/event-stream")
+
+
+@app.post("/api/v1/agent/answer")
+async def api_submit_user_answer(request: UserAnswerRequest):
     """
-    接收用户回答
-    
-    用于用户回答AI的问题，支持文本输入、选择题、确认题等多种回答类型
+    提交用户回答，恢复Agent执行
+
+    Args:
+        request: 用户回答请求，包含 session_id, interaction_id, answer
+
+    Returns:
+        StreamingResponse: 继续流式输出Agent的后续执行结果
     """
     try:
-        # 验证请求参数
-        if not request.answer.strip():
-            return {
-                "status": "error",
-                "message": "回答内容不能为空",
-                "interaction_id": request.interaction_id
-            }
-        
-        # 提交用户回答
-        success = await interaction_manager.submit_answer(
-            request.interaction_id, 
-            request.answer
+        # 验证会话是否存在
+        if request.session_id not in stream_handler.active_sessions:
+            raise HTTPException(
+                status_code=404,
+                detail=f"会话不存在: {request.session_id}"
+            )
+
+        session_info = stream_handler.active_sessions[request.session_id]
+        agent = session_info["agent"]
+
+        # 验证Agent状态
+        if agent.state != AgentState.WAITING_USER_INPUT:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Agent当前状态不是等待用户输入: {agent.state}"
+            )
+
+        # 处理用户回答
+        success = agent.handle_user_answer(request.interaction_id, request.answer)
+        if not success:
+            raise HTTPException(
+                status_code=400,
+                detail=f"处理用户回答失败: interaction_id={request.interaction_id}"
+            )
+
+        logger.info(f"[用户回答] 会话: {request.session_id}, 交互ID: {request.interaction_id}, 回答: {request.answer[:50]}")
+
+        # 创建一个新的请求对象继续执行
+        continue_request = AgentExecuteRequest(
+            query=request.answer,
+            agent_type="PlanAgent",
+            session_id=request.session_id
         )
-        
-        if success:
-            logger.info(f"用户回答已提交: {request.interaction_id}, 回答: {request.answer}")
-            return {
-                "status": "success",
-                "message": "回答已提交，AI继续执行中",
-                "interaction_id": request.interaction_id,
-                "session_id": request.session_id,
-                "answer": request.answer,
-                "timestamp": datetime.now().isoformat()
-            }
-        else:
-            logger.warning(f"交互不存在或已过期: {request.interaction_id}")
-            return {
-                "status": "error", 
-                "message": "交互不存在或已过期，可能已超时",
-                "interaction_id": request.interaction_id
-            }
-            
+
+        # 继续流式执行Agent
+        generator = stream_handler.execute_agent_stream(continue_request)
+        return StreamingResponse(generator, media_type="text/event-stream")
+
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"提交用户回答失败: {e}")
-        return {
-            "status": "error",
-            "message": f"提交失败: {str(e)}",
-            "interaction_id": request.interaction_id
-        }
-
-
-@app.get("/api/v1/agent/sessions")
-async def get_active_sessions():
-    """获取活跃会话列表"""
-    sessions = []
-    for session_id, info in stream_handler.active_sessions.items():
-        agent = info["agent"]
-        sessions.append({
-            "session_id": session_id,
-            "agent_id": agent.agent_id,
-            "agent_name": agent.agent_name,
-            "current_round": agent.current_round,
-            "start_time": info["start_time"].isoformat(),
-            "current_state": info.get("current_state"),
-            "current_tool": info.get("current_tool")
-        })
-    return {"active_sessions": sessions}
-
-
-@app.get("/api/v1/agent/interactions/{session_id}")
-async def get_session_interactions(session_id: str):
-    """获取会话的交互历史"""
-    try:
-        interactions = await interaction_manager.get_session_interactions(session_id)
-        return {
-            "status": "success",
-            "session_id": session_id,
-            "interactions": [interaction.dict() for interaction in interactions],
-            "total_count": len(interactions)
-        }
-    except Exception as e:
-        logger.error(f"获取会话交互历史失败: {e}")
-        return {
-            "status": "error",
-            "message": f"获取失败: {str(e)}",
-            "session_id": session_id
-        }
-
-
-@app.get("/api/v1/agent/interaction-stats")
-async def get_interaction_stats():
-    """获取交互统计信息"""
-    try:
-        stats = interaction_manager.get_stats()
-        return {
-            "status": "success",
-            "stats": stats
-        }
-    except Exception as e:
-        logger.error(f"获取交互统计失败: {e}")
-        return {
-            "status": "error",
-            "message": f"获取统计失败: {str(e)}"
-        }
+        tb = traceback.format_exc()
+        logger.error(f"[错误] 处理用户回答失败: {str(e)}\n{tb}")
+        raise HTTPException(status_code=500, detail=f"处理用户回答失败: {str(e)}")
 
 
 @app.get("/api/v1/health")
 async def health_check():
     """健康检查"""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+
+@app.get("/api/v1/file/list")
+async def list_files(session_id: str):
+    """列出session下的所有文件"""
+    try:
+        # 安全检查：确保session_id不包含危险字符
+        if ".." in session_id or "/" in session_id or "\\" in session_id:
+            raise HTTPException(status_code=400, detail="Invalid session_id")
+
+        # 构建session目录路径
+        session_dir = project_root / session_id
+
+        # 检查目录是否存在
+        if not session_dir.exists():
+            return {
+                "status": "success",
+                "session_id": session_id,
+                "files": []
+            }
+
+        if not session_dir.is_dir():
+            raise HTTPException(status_code=400, detail=f"Not a directory: {session_id}")
+
+        # 递归扫描所有文件
+        files = []
+        for file_path in session_dir.rglob('*'):
+            if file_path.is_file():
+                try:
+                    # 获取相对路径
+                    relative_path = file_path.relative_to(project_root)
+                    stat = file_path.stat()
+
+                    files.append({
+                        "name": file_path.name,
+                        "path": str(relative_path).replace('\\', '/'),
+                        "size": stat.st_size,
+                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                    })
+                except Exception as e:
+                    logger.warning(f"无法获取文件信息: {file_path}, 错误: {str(e)}")
+                    continue
+
+        # 按修改时间排序（最新的在前）
+        files.sort(key=lambda x: x['modified'], reverse=True)
+
+        logger.info(f"成功列出session文件: {session_id}, 文件数: {len(files)}")
+
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "files": files,
+            "count": len(files)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"列出文件失败: {session_id}, 错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to list files: {str(e)}")
+
+
+@app.get("/api/v1/file/read")
+async def read_file(filepath: str):
+    """读取文件内容"""
+    try:
+        # 安全检查：确保路径不包含 ../ 等危险字符
+        if ".." in filepath or filepath.startswith("/"):
+            raise HTTPException(status_code=400, detail="Invalid file path")
+
+        # 构建完整路径（相对于项目根目录）
+        full_path = project_root / filepath
+
+        # 检查文件是否存在
+        if not full_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {filepath}")
+
+        # 检查是否是文件
+        if not full_path.is_file():
+            raise HTTPException(status_code=400, detail=f"Not a file: {filepath}")
+
+        # 读取文件内容
+        with open(full_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        logger.info(f"成功读取文件: {filepath}, 大小: {len(content)} 字符")
+
+        return {
+            "status": "success",
+            "filepath": filepath,
+            "content": content,
+            "size": len(content)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"读取文件失败: {filepath}, 错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to read file: {str(e)}")
 
 
 if __name__ == "__main__":

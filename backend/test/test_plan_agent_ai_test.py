@@ -18,7 +18,8 @@ from backend.artifacts.manager import ArtifactManager
 llm_config = LLMConfig(
     api_key="amep3rwbqWIpFoOnKpZw", 
     base_url="https://genaiapish-zy2cw9s.xiaosuai.com/v1",
-    max_tokens=64000
+    max_tokens=64000,
+    model_name="MaaS_Opus_4",
 )
 
 

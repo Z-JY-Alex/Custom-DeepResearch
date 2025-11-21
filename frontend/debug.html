@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>调试助手 - 文件内容显示</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        .section {
+            background: #252526;
+            border: 1px solid #3e3e42;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .section-title {
+            color: #4ec9b0;
+            font-weight: bold;
+            margin-bottom: 12px;
+            font-size: 16px;
+        }
+        .log-entry {
+            padding: 8px;
+            margin: 4px 0;
+            background: #1e1e1e;
+            border-left: 3px solid #007acc;
+            font-size: 13px;
+        }
+        .log-entry.warning {
+            border-left-color: #ffa500;
+        }
+        .log-entry.error {
+            border-left-color: #f48771;
+        }
+        .log-entry.success {
+            border-left-color: #4ec9b0;
+        }
+        button {
+            background: #0e639c;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 4px;
+        }
+        button:hover {
+            background: #1177bb;
+        }
+        #logOutput {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 文件内容显示调试助手</h1>
+
+    <div class="section">
+        <div class="section-title">📋 使用说明</div>
+        <ol>
+            <li>打开浏览器控制台（F12）</li>
+            <li>在主页面发送请求，等待文件操作完成</li>
+            <li>点击文件按钮打开侧边栏</li>
+            <li>在控制台查看以下关键日志：</li>
+        </ol>
+    </div>
+
+    <div class="section">
+        <div class="section-title">🔑 关键日志标识</div>
+        <div class="log-entry">🔧 handleToolArgs 开始 - 检查工具参数是否正确接收</div>
+        <div class="log-entry success">📂 检测到文件操作 - 检查filepath是否正确提取</div>
+        <div class="log-entry success">✅ 文件路径已保存到元素 - 确认路径保存成功</div>
+        <div class="log-entry">📝 收到工具结果内容事件 - 检查是否接收到流式内容</div>
+        <div class="log-entry success">📄 流式追加内容到侧边栏 - 确认内容正在追加</div>
+        <div class="log-entry warning">⚠️ 文件操作但没有filepath参数 - 警告：缺少filepath</div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">🛠️ 常见问题排查</div>
+        <div style="margin-bottom: 8px;">
+            <strong>问题1：没有看到 "📂 检测到文件操作"</strong>
+            <div style="margin-left: 20px; color: #ce9178;">
+                原因：tool_args 中的 filepath 字段可能不是 "filepath"，而是其他名称
+                <br>解决：检查控制台中 "full_tool_args" 的具体字段
+            </div>
+        </div>
+        <div style="margin-bottom: 8px;">
+            <strong>问题2：看到 "📂 检测到文件操作" 但侧边栏没内容</strong>
+            <div style="margin-left: 20px; color: #ce9178;">
+                原因：侧边栏在接收到内容前就打开了，或者路径匹配失败
+                <br>解决：先打开侧边栏，再等待内容流式传输
+            </div>
+        </div>
+        <div style="margin-bottom: 8px;">
+            <strong>问题3：没有看到 "📄 流式追加内容到侧边栏"</strong>
+            <div style="margin-left: 20px; color: #ce9178;">
+                原因：路径匹配失败，或者侧边栏未打开
+                <br>解决：检查 currentFilePath 和实际 filepath 是否匹配
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">📊 控制台命令</div>
+        <button onclick="copyCommand('app.currentFilePath')">查看当前打开的文件路径</button>
+        <button onclick="copyCommand('Array.from(document.querySelectorAll(\'.tool-call\')).map(el => el.dataset.filepath)')">查看所有工具元素的文件路径</button>
+        <button onclick="copyCommand('document.getElementById(\'fileContent\').textContent.length')">查看侧边栏内容长度</button>
+        <button onclick="copyCommand('document.getElementById(\'sidebar\').classList.contains(\'open\')')">检查侧边栏是否打开</button>
+        <div style="margin-top: 12px; padding: 8px; background: #1e1e1e; border-radius: 4px;">
+            <div style="color: #4ec9b0; margin-bottom: 4px;">💡 提示：点击按钮后，在控制台粘贴并执行命令</div>
+            <div id="commandOutput" style="color: #ce9178;"></div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">🔬 实时日志监控</div>
+        <button onclick="startMonitoring()">开始监控</button>
+        <button onclick="stopMonitoring()">停止监控</button>
+        <button onclick="clearLogs()">清空日志</button>
+        <div id="logOutput" style="margin-top: 12px;"></div>
+    </div>
+
+    <script>
+        let monitoringInterval = null;
+
+        function copyCommand(cmd) {
+            const output = document.getElementById('commandOutput');
+            output.textContent = `已复制: ${cmd}`;
+            setTimeout(() => {
+                output.textContent = '';
+            }, 3000);
+
+            // 尝试复制到剪贴板
+            navigator.clipboard.writeText(cmd).catch(() => {
+                output.textContent = `请手动复制: ${cmd}`;
+            });
+        }
+
+        function addLog(message, type = 'info') {
+            const logOutput = document.getElementById('logOutput');
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry ${type}`;
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logOutput.insertBefore(logEntry, logOutput.firstChild);
+
+            // 限制日志数量
+            while (logOutput.children.length > 50) {
+                logOutput.removeChild(logOutput.lastChild);
+            }
+        }
+
+        function startMonitoring() {
+            if (monitoringInterval) {
+                addLog('监控已在运行中', 'warning');
+                return;
+            }
+
+            addLog('开始监控文件内容显示...', 'success');
+
+            // 劫持console.log来捕获日志
+            const originalLog = console.log;
+            console.log = function(...args) {
+                originalLog.apply(console, args);
+
+                // 检查是否是文件相关的日志
+                const message = args.join(' ');
+                if (message.includes('📂') || message.includes('📄') || message.includes('🔧')) {
+                    addLog(message, 'success');
+                } else if (message.includes('⚠️') || message.includes('警告')) {
+                    addLog(message, 'warning');
+                } else if (message.includes('❌') || message.includes('错误')) {
+                    addLog(message, 'error');
+                }
+            };
+
+            // 定期检查状态
+            monitoringInterval = setInterval(() => {
+                try {
+                    const sidebar = window.opener?.document.getElementById('sidebar');
+                    const fileContent = window.opener?.document.getElementById('fileContent');
+                    const currentPath = window.opener?.app?.currentFilePath;
+
+                    if (sidebar && sidebar.classList.contains('open')) {
+                        const contentLength = fileContent?.textContent?.length || 0;
+                        if (contentLength > 0) {
+                            addLog(`✅ 侧边栏已打开，内容长度: ${contentLength}`, 'success');
+                        } else {
+                            addLog(`⚠️ 侧边栏已打开，但内容为空。当前路径: ${currentPath || '未设置'}`, 'warning');
+                        }
+                    }
+                } catch (e) {
+                    // 忽略跨域错误
+                }
+            }, 2000);
+        }
+
+        function stopMonitoring() {
+            if (monitoringInterval) {
+                clearInterval(monitoringInterval);
+                monitoringInterval = null;
+                addLog('监控已停止', 'info');
+            }
+        }
+
+        function clearLogs() {
+            document.getElementById('logOutput').innerHTML = '';
+        }
+    </script>
+</body>
+</html>

@@ -3,9 +3,10 @@ from typing import List, Any
 
 
 class AgentState(str, Enum):
-    
+
     IDLE = "IDLE"
     RUNNING = "RUNNING"
+    WAITING_USER_INPUT = "WAITING_USER_INPUT"
     FINISHED = "FINISHED"
     ERROR = "ERROR"
 
@@ -29,6 +30,7 @@ class AgentPools(str, Enum):
     CONTENT_ANALYZER = "CONTENT_ANALYSIS"
     TEST_CASE_GENERATE = "TEST_CASE_GENERATE"
     CODE_GENERATE = "CODE_GENERATE"
+    SUMMARY_REPORT = "SUMMARY_REPORT"
     
     @classmethod
     def to_list(cls) -> List[Any]:

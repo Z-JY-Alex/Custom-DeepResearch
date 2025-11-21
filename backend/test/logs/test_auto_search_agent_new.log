@@ -914,3 +914,64 @@ Current Tokens  : 7770
 Max Tokens      : 1000000
 Token Usage     : 0.78%
 ============================
+2025-11-04 17:14:47 | INFO     | backend.llm.llm:_initialize_client:69 - OpenAI客户端初始化成功，模型: MaaS_Sonnet_4
+2025-11-04 17:14:47 | INFO     | backend.llm.llm:_initialize_client:69 - OpenAI客户端初始化成功，模型: MaaS_Sonnet_4
+2025-11-04 17:14:47 | INFO     | backend.agent.base:add_tool:190 - Agent PlanAgent 添加工具: stream_file_operation
+2025-11-04 17:14:47 | INFO     | backend.agent.base:add_tool:190 - Agent PlanAgent 添加工具: file_read
+2025-11-04 17:14:47 | INFO     | backend.agent.base:add_tool:190 - Agent PlanAgent 添加工具: artifact_write
+2025-11-04 17:14:47 | INFO     | backend.agent.base:add_tool:190 - Agent PlanAgent 添加工具: terminate
+2025-11-04 17:14:47 | INFO     | backend.agent.base:add_tool:190 - Agent PlanAgent 添加工具: planning
+2025-11-04 17:14:47 | INFO     | backend.agent.base:add_tool:190 - Agent PlanAgent 添加工具: sub_agent_run
+2025-11-04 17:14:47 | INFO     | __main__:main:61 - 开始执行自动搜索查询: 当前Cookie: Hm_lvt_0a1b7151d8c580761c3aef32a3d501c6=1760692807; SERVERID=fe82cac8f8e600c79e0f3988dddd8...
+2025-11-04 17:14:47 | INFO     | backend.agent.base:_run:376 - 
+=== Agent Execution Info ===
+Agent ID        : 13918e70-41ee-4dcd-be5d-ff48874620ac
+Agent Name      : PlanAgent
+Execution Round : 1
+Current Tokens  : 7797
+Max Tokens      : 1000000
+Token Usage     : 0.78%
+============================
+我需我需要分要分析这析这个数个数字字人人视视频频详详情保情保存接口的存接口的文文档，并使用档，并使用pytest+requests+allpytest+requests+allure框ure框架生成完架生成完整的自整的自动化测试代动化测试代码和码和报告。这报告。这是一个接是一个接口自口自动化测试任动化测试任务，务，我我将按将按照标照标准化准化流流程制程制定定详详细的执细的执行计行计划。划。2025-11-04 17:14:56 | INFO     | backend.agent.planner_ai_test:execute_tools:73 - 准备执行 1 个工具调用
+2025-11-04 17:14:56 | INFO     | backend.agent.planner_ai_test:execute_tools:90 - 执行工具: planning
+
+<TOOL_CALL> planning </TOOL_CALL>
+
+<TOOL_CALL> planning </TOOL_CALL>
+
+<TOOL_ARGS> {'command': 'create', 'plan_id': 'digital_human_api_test', 'title': '数字人视频详情保存接口自动化测试', 'steps': [{' </TOOL_ARGS>
+
+<TOOL_ARGS> {'command': 'create', 'plan_id': 'digital_human_api_test', 'title': '数字人视频详情保存接口自动化测试', 'steps': [{' </TOOL_ARGS>
+
+<TOOL_RESULT>
+<TOOL_RESULT># 数字人视频详情保存接口自动化测试
+## 业务流程分析
+- [] 梳理数字人视频保存的核心业务流程，明确接口的业务逻辑和数据流转关系
+## 接口分析与测试用例设计
+- [] 保存数字人视频详情接口分析与测试用例设计
+## 测试代码实现
+- [] 搭建测试环境和配置
+- [] 保存数字人视频详情接口测试代码实现
+- [] 执行测试代码，生成Allure报告
+- [] 生成详尽的测试报告并写入文件
+# 数字人视频详情保存接口自动化测试
+## 业务流程分析
+- [] 梳理数字人视频保存的核心业务流程，明确接口的业务逻辑和数据流转关系
+## 接口分析与测试用例设计
+- [] 保存数字人视频详情接口分析与测试用例设计
+## 测试代码实现
+- [] 搭建测试环境和配置
+- [] 保存数字人视频详情接口测试代码实现
+- [] 执行测试代码，生成Allure报告
+- [] 生成详尽的测试报告并写入文件
+
+</TOOL_RESULT>
+</TOOL_RESULT>2025-11-04 17:14:56 | INFO     | backend.agent.base:_run:376 - 
+=== Agent Execution Info ===
+Agent ID        : 13918e70-41ee-4dcd-be5d-ff48874620ac
+Agent Name      : PlanAgent
+Execution Round : 2
+Current Tokens  : 8298
+Max Tokens      : 1000000
+Token Usage     : 0.83%
+============================

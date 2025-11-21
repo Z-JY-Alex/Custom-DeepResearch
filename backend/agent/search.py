@@ -124,36 +124,6 @@ class SearchAgent(BaseAgent):
         self.memory.states[self.agent_id]["tool_result"].extend(results)
         self.memory.states[self.agent_id]["all_history"].extend(messages)
 
-    async def generate_final_response(self):
-        prompt = """你是一个专业的总结助手。请根据对话记录，对最终结果进行清晰、准确和全面的总结：
-
-要求：
-1. 提炼关键信息，不遗漏重要细节。
-2. 按逻辑结构组织总结，可以使用分点或小段落。
-3. 避免重复信息，语言简明易懂。
-4. 如果内容涉及多个步骤或阶段，按顺序概括。
-5. 给出可操作的结论或建议（如适用）。"""
-        self.memory.states[self.agent_id]["all_history"].append(
-            Message(
-                role=MessageRole.USER, content=prompt, 
-                timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
-                metadata={"current_round": self.current_round}
-            )
-        )
-        final_result = ""
-        async for chunk in await self.llm.generate(messages=self.memory.states[self.agent_id]["all_history"]):
-            if chunk.content:
-                final_result += chunk.content
-                yield chunk.content
-        self.memory.states[self.agent_id]["all_history"].append(
-            Message(
-                role=MessageRole.ASSISTANT, content=final_result, 
-                timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
-                metadata={"current_round": self.current_round}
-            )
-        )
-        self.memory.states[self.agent_id]["final_result"] = final_result
-
     async def run(self, query: str):
         """执行自主搜索代理的主要逻辑"""
         if not self.llm:
@@ -184,46 +154,5 @@ class SearchAgent(BaseAgent):
         self.memory.states[self.agent_id]["all_history"] = messages
         self.memory.states[self.agent_id]["tool_result"] = []
 
-        # 第二步：迭代搜索循环
-        logger.info("🔍 步骤2：开始迭代搜索")            
-
-        while self.current_round < self.max_search_rounds:
-            self.current_round += 1
-            logger.info(f"🔄 第 {self.current_round} 轮搜索")
-            tool_calls = []
-            content_parts = ""
-            async for chunk in await self.llm.generate(messages=self.memory.states[self.agent_id]["all_history"], tools=self.tools):
-                if chunk.content:
-                    content_parts += chunk.content
-                    yield chunk.content
-                if chunk.tool_calls:
-                    tool_calls.extend(chunk.tool_calls)
-            
-            self.memory.states[self.agent_id]["all_history"].append(
-                Message(
-                    role=MessageRole.ASSISTANT, content=content_parts, 
-                    timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
-                    metadata={"current_round": self.current_round}
-                )
-            )
-            
-            if tool_calls:
-                async for chunk in self.execute_tools(tool_calls=tool_calls):
-                    yield chunk
-
-            if self.state == AgentState.FINISHED:
-                break
-            
-        # 第三步：生成最终综合回答
-        logger.info("📝 步骤3：生成最终综合回答")
-        async for chunk in self.generate_final_response():
-            yield chunk
-            
-        # except Exception as e:
-        #     import traceback
-        #     self.state = AgentState.ERROR
-        #     error_msg = f"自主搜索代理执行失败: {str(e)}"
-        #     logger.error(error_msg)
-        #     traceback.print_exc()
-        #     raise error_msg
-    
+        async for x in self._run():
+            yield x

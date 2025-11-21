@@ -242,32 +242,25 @@ class ArtifactWriteTool(BaseTool):
             },
             "content_location": {
                 "type": "string",
-                "description": """主要内容的存储位置（可选）。
+                "description": """主要内容的存储位置（必填）。
+                
+                【路径规范】
+                - 所有保存路径必须以 session_id 作为根目录，例如："{{session_id}}/..."
+                - 单文件场景：填写该文件的完整路径（位于 session 目录下）
+                - 多文件场景：填写文件主目录（位于 session 目录下）
+                - 建议与任务名/结果名组合，例如："{{session_id}}/{{name}}" 或 "{{session_id}}/main.md"
                 
                 【使用场景】
-                - 当生成了文件时，这里可以填写主文件的路径
-                - 当有多个文件时，可以填写主目录或入口文件
-                - 当内容存储在特定位置时，提供该位置的路径
-                
-                【路径要求】
-                - 使用绝对路径或当前工程下的相对路径
-                - 相对路径以项目根目录为基准
-                - 确保路径的准确性和可访问性
+                - 生成单个文件：如 "{{session_id}}/report.md"
+                - 生成多个文件：如 "{{session_id}}/project/"（主目录）
                 
                 【注意】
-                - 如果有多个文件，详细的路径列表应该写在 summary 中
-                - 此字段仅作为快速定位的辅助信息
-                - 可以为空，不影响 summary 的完整性
-                
-                示例：
-                - ".output/project/src/user/user_service.py"（单文件）
-                - ".output/project/src/auth/"（多文件目录）
-                - "/home/project/output/report.md"（绝对路径）
-                """,
-                "default": None
+                - 多文件场景的各文件详细路径应在 summary 中列出
+                - 路径需可访问且正确，避免使用与当前会话无关的绝对路径
+                """
             }
         },
-        "required": ["name", "summary"]
+        "required": ["name", "summary", "content_location"]
     }
     artifact_manager: Optional[ArtifactManager] = None
     
@@ -315,6 +308,10 @@ class ArtifactWriteTool(BaseTool):
                 metadata["name"] = name
             metadata["created_by"] = "artifact_write_tool"
             
+            # 基本参数校验
+            if not content_location or not isinstance(content_location, str):
+                raise ToolError("content_location 为必填项，必须为字符串，并以 session_id 为根目录")
+
             # 创建工件
             artifact = await self.artifact_manager.create_artifact(
                 content="",
@@ -339,8 +336,7 @@ class ArtifactWriteTool(BaseTool):
             success_msg = f"工件创建成功: {artifact.artifact_id}"
             if name:
                 success_msg += f" (名称: {name})"
-            if content_location:
-                success_msg += f"\n内容位置: {content_location}"
+            success_msg += f"\n内容位置: {content_location}"
             
             return ToolCallResult(
                 tool_call_id="artifact_write",
