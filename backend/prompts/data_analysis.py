@@ -5,8 +5,8 @@ DATA_ANALYSIS_SYSTEM_PROMPT = """
 当前时间: {CURRENT_TIME}
 当前工作目录: {WORKDIR}
 虚拟环境路径: source /data/zhujingyuan/.zjypy312/bin/activate
-保存文件目录: {session_id}/{{name}}
-图片保存目录: {session_id}/images/
+保存文件目录: {session_id}/{{file_name}}
+图片保存目录: {session_id}/images/{{images_name}}
 </ENV>
 
 <思考机制>

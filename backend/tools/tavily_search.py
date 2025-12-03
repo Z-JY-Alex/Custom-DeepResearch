@@ -1,8 +1,9 @@
 import os
 import httpx
 import asyncio
+import traceback
 from typing import Any, Dict
-from backend.tools.base import BaseTool, ToolCallResult, ToolError
+from backend.tools.base import BaseTool, ToolCallResult
 from tavily import AsyncTavilyClient
 
 
@@ -191,17 +192,19 @@ class TavilySearch(BaseTool):
         return markdown_content
 
     async def execute(self, **kwargs):
-
-        client = AsyncTavilyClient("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")
-
-        if "include_images" not in kwargs:
-            kwargs["include_images"] = True
-        if "include_image_descriptions" not in kwargs:
-            kwargs["include_image_descriptions"] = True
-        # 构建搜索参数
-        input_param = {**kwargs, "include_answer": "advanced"}
-
+        """执行 Tavily 搜索"""
         try:
+            client = AsyncTavilyClient("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")
+
+            if "include_images" not in kwargs:
+                kwargs["include_images"] = True
+            if "include_image_descriptions" not in kwargs:
+                kwargs["include_image_descriptions"] = True
+
+            # 构建搜索参数
+            input_param = {**kwargs, "include_answer": "advanced"}
+
+            # 执行搜索
             response = await client.search(**input_param)
 
             # 检查响应是否有效
@@ -222,8 +225,27 @@ class TavilySearch(BaseTool):
                 user_result=user_friendly_result,
                 result=internal_result
             )
-        except Exception as e:
-            error_msg = f"Tavily Search API 调用失败: {str(e)}"
+
+        except (ValueError, TypeError, KeyError) as e:
+            # 参数错误
+            tb = traceback.format_exc()
+            error_msg = f"Tavily Search 参数错误: {str(e)}\n\nTraceback:\n{tb}"
+            return ToolCallResult(
+                tool_call_id="",
+                error=error_msg
+            )
+        except (httpx.HTTPError, httpx.RequestError) as e:
+            # 网络错误
+            tb = traceback.format_exc()
+            error_msg = f"Tavily Search 网络错误: {str(e)}\n\nTraceback:\n{tb}"
+            return ToolCallResult(
+                tool_call_id="",
+                error=error_msg
+            )
+        except BaseException as e:
+            # 捕获所有其他异常（包括 Exception 和 系统异常）
+            tb = traceback.format_exc()
+            error_msg = f"Tavily Search API 调用失败: {type(e).__name__}: {str(e)}\n\nTraceback:\n{tb}"
             return ToolCallResult(
                 tool_call_id="",
                 error=error_msg
