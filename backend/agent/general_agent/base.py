@@ -171,9 +171,6 @@ class BaseAgent(BaseModel, ABC):
         self.add_tool(self.artifact_tool)
         self.add_tool(self.terminate)
 
-        self.user_interaction_tool = UserInteractionTool()
-        self.add_tool(self.user_interaction_tool)
-        
     def get_prompt(
         self,
         role: str = "智能助手",
@@ -739,16 +736,7 @@ class BaseAgent(BaseModel, ABC):
             current_tokens = self.calculate_current_tokens()
             token_usage_ratio = current_tokens / self.max_context_tokens if self.max_context_tokens > 0 else 0
 
-            logger.info(
-                "\n=== Agent Execution Info ===\n"
-                f"Agent ID        : {self.agent_id}\n"
-                f"Agent Name      : {self.agent_name}\n"
-                f"Execution Round : {self.current_round}\n"
-                f"Current Tokens  : {current_tokens}\n"
-                f"Max Tokens      : {self.max_context_tokens}\n"
-                f"Token Usage     : {token_usage_ratio:.2%}\n"
-                "============================"
-            )
+            logger.info(f"[轮次 {self.current_round}] Token: {current_tokens}/{self.max_context_tokens} ({token_usage_ratio:.0%})")
 
             tool_calls = []
             content_parts = ""
@@ -757,6 +745,9 @@ class BaseAgent(BaseModel, ABC):
                     content_parts += chunk.content
                     if self.file_operation_tool.is_active():
                         await self.file_operation_tool.write_chunk(chunk.content)
+
+                    print(chunk.content, end="")
+                    logger.debug(f"[{self.agent_name}] LLM输出: {chunk.content[:200]}")
                     # 统一输出结构：普通Agent内容
                     yield AgentStreamPayload(
                         event_type=AgentEventType.AGENT_CONTENT,
@@ -771,6 +762,7 @@ class BaseAgent(BaseModel, ABC):
 
             if content_parts:
                 # 计算内容Token数量并添加到元数据
+                logger.info(f"[{self.agent_name}][轮次 {self.current_round}] LLM完整输出({len(content_parts)}字符):\n{content_parts[:1000]}")
                 content_tokens = self.token_counter.count_text_tokens(content_parts)
                 self.memory.states[self.agent_id]["all_history"].append(
                     Message(

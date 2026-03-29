@@ -8,6 +8,7 @@ from pathlib import Path
 
 # 添加项目根目录到 Python 路径
 project_root = Path(__file__).parent.parent.parent
+
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
@@ -24,6 +25,7 @@ from pydantic import BaseModel, Field
 from loguru import logger
 import traceback
 import os
+from backend import config
 
 # 配置日志：保存到 logs/ 文件夹
 logs_dir = project_root / "logs"
@@ -53,9 +55,11 @@ logger.add(
 # from backend.agent.planner_ai_test import PlanAgent
 from backend.agent.general_agent.planner import PlanAgent
 from backend.agent.general_agent.search import SearchAgent
-from backend.agent.content_analyzer import ContentAnalyzerAgent
+from backend.agent.general_agent.content_analyzer import ContentAnalyzerAgent
 from backend.agent.generate_test_cases import TestCasesGeneratorAgent
 from backend.agent.code_executor import CodeExecutorAgent
+from backend.agent.general_agent.data_analysis import DataAnalysisAgent
+
 from backend.llm.base import LLMConfig, Message, MessageRole
 from backend.memory.base import BaseMemory
 from backend.artifacts.manager import ArtifactManager
@@ -105,7 +109,8 @@ class StreamAPIHandler:
             "CONTENT_ANALYSIS": ContentAnalyzerAgent,
             "TEST_CASE_GENERATE": TestCasesGeneratorAgent,
             "CODE_GENERATE": CodeExecutorAgent,
-            "SUMMARY_REPORT": SummaryAgent
+            "SUMMARY_REPORT": SummaryAgent,
+            "DATA_ANALYSIS": DataAnalysisAgent
         }
         
         if agent_type == "PlanAgent":
@@ -154,12 +159,7 @@ class StreamAPIHandler:
             else:
                 # 新建会话与Agent
                 logger.info(f"[会话] 创建新会话: {session_id}, Agent类型: {request.agent_type}")
-                llm_config = {
-                    "model_name": "MaaS_Sonnet_4",
-                    "api_key": "amep3rwbqWIpFoOnKpZw",
-                    "base_url": "https://genaiapish-zy2cw9s.xiaosuai.com/v1",
-                    "max_tokens": 32000
-                }
+                llm_config = config.get_llm_config()
                 agent = self.create_agent(request.agent_type, llm_config, session_id)
                 if request.max_rounds:
                     agent.max_rounds = request.max_rounds
@@ -186,38 +186,39 @@ class StreamAPIHandler:
             
             # 直接透传Agent的JSON事件
             async for chunk in agent.run(messages_to_run):
-                # 格式化日志输出，保持流式显示风格
+                # 控制台输出：简洁可读的连续文本
                 try:
                     event_data = json.loads(chunk)
                     event_type = event_data.get("event_type", "unknown")
                     tool_name = event_data.get("tool", {}).get("name") if isinstance(event_data.get("tool"), dict) else None
                     content = event_data.get("content", "")
-                    agent_name = event_data.get("agent_name")
                     current_round = event_data.get("current_round")
-                    
-                    # 根据事件类型格式化日志
+
                     if event_type == "agent_content":
-                        # Agent内容输出
-                        logger.debug(f"{content}")
+                        pass  # base.py 已通过 print(content, end="") 输出连续文本
                     elif event_type == "tool_call_start":
-                        logger.debug(f"[工具调用] {agent_name} -> 开始执行工具: {tool_name}")
-                    elif event_type == "tool_args":
-                        tool_args = event_data.get("tool_args", {})
-                        logger.debug(f"[工具参数] {agent_name} -> {tool_name}: {json.dumps(tool_args, ensure_ascii=False)}")
+                        sys.stdout.write(f"\n🔧 [{tool_name}] ")
+                        sys.stdout.flush()
                     elif event_type == "tool_result_content":
-                        logger.debug(f"[工具结果] {agent_name} -> {tool_name}: {content}")
+                        pass  # 工具结果不在控制台显示
+                    elif event_type == "tool_result_end":
+                        sys.stdout.write(f"✅\n")
+                        sys.stdout.flush()
+                    elif event_type == "agent_running":
+                        sys.stdout.write(f"\n--- 轮次 {current_round} ---\n")
+                        sys.stdout.flush()
+                    elif event_type == "agent_finished":
+                        sys.stdout.write(f"\n✅ Agent 执行完成\n")
+                        sys.stdout.flush()
                     elif event_type == "error":
                         error_msg = event_data.get("error_message", "")
-                        logger.error(f"[错误] {agent_name} -> {tool_name if tool_name else 'Agent'}: {error_msg}")
+                        logger.error(f"[错误] {error_msg}")
                     elif event_type == "ask_user":
-                        logger.debug(f"[用户交互] {agent_name} -> 询问用户: {content}")
-                    else:
-                        logger.debug(f"[事件] {event_type}: {chunk}")
+                        sys.stdout.write(f"\n❓ {content}\n")
+                        sys.stdout.flush()
                 except json.JSONDecodeError:
-                    # 如果不是JSON格式，直接输出原始内容
-                    logger.info(f"[流式输出] {chunk}")
-                logger.info(f"{chunk} \n\n")
-                # 直接作为SSE数据输出，不再包装为 StreamEvent
+                    pass
+
                 yield f"data: {chunk}\n\n"
             
             # 流式执行完成
@@ -429,4 +430,5 @@ async def read_file(filepath: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    server_cfg = config.get_server_config()
+    uvicorn.run(app, host=server_cfg["host"], port=server_cfg["port"])

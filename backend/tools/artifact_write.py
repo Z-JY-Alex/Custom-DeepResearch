@@ -124,11 +124,6 @@ class ArtifactWriteTool(BaseTool):
     parameters: dict = {
         "type": "object",
         "properties": {
-            # "content": {
-            #     "type": "string",
-            #     "description": "要写入artifact的内容",
-            #     "default": ""
-            # },
             "artifact_type": {
                 "type": "string",
                 "enum": ["text", "file", "image", "audio", "video", "other"],

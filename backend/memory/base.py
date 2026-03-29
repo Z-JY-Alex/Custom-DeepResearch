@@ -20,6 +20,7 @@ from backend.llm.token_counter import TokenCounter, create_token_counter
 from backend.agent.schema import AgentState, AgentTypes
 from backend.llm.llm import OpenAILLM
 from backend.llm.base import LLMConfig
+from backend import config
 
 
 class MemoryItem(BaseModel):
@@ -85,12 +86,7 @@ class BaseMemory(BaseModel):
             if self.compression_llm_config is None:
                 # 使用默认配置创建一个轻量级的LLM用于压缩
                 self.compression_llm_config = LLMConfig(
-                    model_name="MaaS_Sonnet_4",  # 使用更便宜的模型进行压缩
-                    temperature=0.3,
-                    max_tokens=1000,
-                    timeout=30.0,
-                    api_key="amep3rwbqWIpFoOnKpZw",
-                    base_url="https://genaiapish-zy2cw9s.xiaosuai.com/v1"
+                    **config.get_compression_llm_config()
                 )
             self.compression_llm = OpenAILLM(self.compression_llm_config)
     
@@ -153,7 +149,7 @@ class BaseMemory(BaseModel):
                             f"completion_tokens: {usage.get('completion_tokens', 'N/A')}, "
                             f"prompt_tokens: {usage.get('prompt_tokens', 'N/A')}"
                         )
-                        return  
+                        return total_tokens
 
             # 如果没有找到真实统计，回退到估算所有消息
             logger.debug(f"Agent {agent_id} 未找到真实Token统计，回退到估算")

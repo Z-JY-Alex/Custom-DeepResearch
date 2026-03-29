@@ -31,6 +31,7 @@ class AgentPools(str, Enum):
     TEST_CASE_GENERATE = "TEST_CASE_GENERATE"
     CODE_GENERATE = "CODE_GENERATE"
     SUMMARY_REPORT = "SUMMARY_REPORT"
+    DATA_ANALYSIS = "DATA_ANALYSIS"
     
     @classmethod
     def to_list(cls) -> List[Any]:

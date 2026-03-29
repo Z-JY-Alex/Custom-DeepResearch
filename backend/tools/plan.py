@@ -18,7 +18,7 @@ _PLANNING_TOOL_DESCRIPTION = """
 - SUMMARY_REPORT: 负责总结任务成果并生成面向用户的成果报告。
 """
 
-AGENT_LIST = ["WEB_SEARCH", "CONTENT_ANALYSIS", "TEST_CASE_GENERATE", "CODE_GENERATE", "SUMMARY_REPORT"]
+AGENT_LIST = ["WEB_SEARCH", "CONTENT_ANALYSIS", "TEST_CASE_GENERATE", "CODE_GENERATE", "SUMMARY_REPORT", "DATA_ANALYSIS"]
 
 class PlanningTool(BaseTool):
     """
@@ -539,7 +539,14 @@ class PlanningTool(BaseTool):
                 for step_idx, step in enumerate(group_steps):
                     status = group_statuses[step_idx] if step_idx < len(group_statuses) else "not_started"
                     notes = group_notes[step_idx] if step_idx < len(group_notes) else ""
-                    
+
+                    # Get step type if available
+                    step_type = ""
+                    if plan.get("steps_type") and group_idx < len(plan["steps_type"]):
+                        type_group = plan["steps_type"][group_idx]
+                        if group_name in type_group and step_idx < len(type_group[group_name]):
+                            step_type = type_group[group_name][step_idx]
+
                     # Map status to symbols
                     status_symbol = {
                         "not_started": "[]",
@@ -548,7 +555,10 @@ class PlanningTool(BaseTool):
                         "blocked": "[!]",
                     }.get(status, "[]")
 
-                    output += f"- {status_symbol} {step}\n"
+                    if step_type:
+                        output += f"- {status_symbol} 【{step_type}】{step}\n"
+                    else:
+                        output += f"- {status_symbol} {step}\n"
                     if notes:
                         output += f"备注: {notes}\n"
 

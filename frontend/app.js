@@ -15,10 +15,17 @@ class AIAssistantApp {
         this.toolCallStates = new Map(); // 跟踪每个工具调用的状态
 
         // 完全隐藏的工具列表（调用和结果都不显示）
-        this.fullyHiddenTools = ['artifact_write', 'terminate', 'sub_agent_run'];
+        this.fullyHiddenTools = ['artifact_write', 'terminate', 'sub_agent_run', 'planning', 'file_read'];
 
         // 只隐藏调用框的工具列表（结果正常显示）
         this.hideCallOnlyTools = ['ask_user'];
+
+        // 隐藏工具框但保留功能按钮的工具（创建隐藏元素+文件按钮等）
+        this.hideBoxKeepButtonTools = ['stream_file_operation'];
+
+        // 计划相关状态
+        this.activePlan = null;
+        this.planStepElements = {}; // stepIndex -> DOM 元素映射
 
         // 事件队列：确保事件按顺序处理
         this.eventQueue = [];
@@ -52,7 +59,7 @@ class AIAssistantApp {
         this.currentFileMode = null; // 当前文件的操作模式
 
         // API配置
-        this.apiBaseUrl = 'http://localhost:8000/api/v1';
+        this.apiBaseUrl = 'http://localhost:1234/api/v1';
 
         // 会话ID：每个对话框维持一个session_id
         this.sessionId = this.generateUUID();
@@ -62,6 +69,45 @@ class AIAssistantApp {
         this.initializeElements();
         this.bindEvents();
         this.setupAutoResize();
+        this.initMarkdown();
+    }
+
+    /**
+     * 初始化Markdown渲染器
+     */
+    initMarkdown() {
+        // marked v15 UMD模式: window.marked 是模块对象，实际函数在 window.marked.marked
+        if (typeof marked !== 'undefined') {
+            const markedFn = marked.marked || marked;
+            if (typeof markedFn.use === 'function') {
+                markedFn.use({ breaks: true, gfm: true });
+            } else if (typeof markedFn.setOptions === 'function') {
+                markedFn.setOptions({ breaks: true, gfm: true });
+            }
+            // 保存解析函数的引用
+            this._markedParse = (typeof markedFn.parse === 'function') ? markedFn.parse.bind(markedFn)
+                              : (typeof markedFn === 'function') ? markedFn : null;
+            console.log('✅ Markdown渲染器已初始化, parse函数:', !!this._markedParse);
+        } else {
+            console.warn('⚠️ marked.js 未加载，将使用纯文本显示');
+            this._markedParse = null;
+        }
+    }
+
+    /**
+     * 渲染Markdown文本为HTML
+     */
+    renderMarkdown(text) {
+        if (!text) return '';
+        if (this._markedParse) {
+            try {
+                return this._markedParse(text);
+            } catch (e) {
+                console.error('Markdown渲染失败:', e);
+            }
+        }
+        // Fallback: 纯文本渲染
+        return this.escapeHtml(text).replace(/\n/g, '<br>');
     }
 
     /**
@@ -83,21 +129,41 @@ class AIAssistantApp {
      * 绑定事件监听器
      */
     bindEvents() {
-        // 发送按钮点击
-        this.elements.sendButton.addEventListener('click', () => this.sendMessage());
-        
-        // 输入框回车发送
-        this.elements.messageInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                this.sendMessage();
-            }
-        });
+        console.log('🔗 绑定事件监听器...');
 
-        // 聊天区域滚动事件监听
-        this.elements.chatMessages.addEventListener('scroll', (e) => {
-            this.handleScroll(e);
-        });
+        if (!this.elements.sendButton) {
+            console.error('❌ sendButton 元素不存在');
+        } else {
+            console.log('✅ sendButton 已绑定');
+            this.elements.sendButton.addEventListener('click', () => {
+                console.log('🖱️ 点击发送按钮');
+                this.sendMessage();
+            });
+        }
+
+        if (!this.elements.messageInput) {
+            console.error('❌ messageInput 元素不存在');
+        } else {
+            console.log('✅ messageInput 已绑定');
+            // 输入框回车发送
+            this.elements.messageInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    console.log('⌨️ 按下回车键');
+                    e.preventDefault();
+                    this.sendMessage();
+                }
+            });
+        }
+
+        if (!this.elements.chatMessages) {
+            console.error('❌ chatMessages 元素不存在');
+        } else {
+            console.log('✅ chatMessages 已绑定');
+            // 聊天区域滚动事件监听
+            this.elements.chatMessages.addEventListener('scroll', (e) => {
+                this.handleScroll(e);
+            });
+        }
     }
 
     /**
@@ -116,17 +182,25 @@ class AIAssistantApp {
      */
     async sendMessage() {
         const message = this.elements.messageInput.value.trim();
-        if (!message) return;
+        console.log('🚀 sendMessage 被调用');
+        console.log('📝 消息内容:', message);
+        console.log('📌 elements:', this.elements);
 
-        console.log('发送消息:', message, '连接状态:', this.isConnected);
-
-        // 如果AI正在执行中，不允许发送新消息
-        if (this.isConnected) {
-            console.log('AI正在执行中，无法发送新消息');
+        if (!message) {
+            console.log('⚠️ 消息为空，返回');
             return;
         }
 
-        console.log('开始发送消息流程');
+        console.log('📤 发送消息:', message, '连接状态:', this.isConnected);
+
+        // 如果AI正在执行中，不允许发送新消息
+        if (this.isConnected) {
+            console.log('⚠️ AI正在执行中，无法发送新消息');
+            alert('请等待当前任务完成后再发送新消息');
+            return;
+        }
+
+        console.log('✅ 开始发送消息流程');
 
         // 显示用户消息
         this.addUserMessage(message);
@@ -140,7 +214,7 @@ class AIAssistantApp {
         try {
             await this.startAgentExecution(message);
         } catch (error) {
-            console.error('发送消息失败:', error);
+            console.error('❌ 发送消息失败:', error);
             this.addErrorMessage('发送失败，请检查网络连接');
             this.setInputEnabled(true);
             this.updateStatus('连接失败', 'error');
@@ -416,24 +490,216 @@ class AIAssistantApp {
      * 处理Agent内容事件 - 立即流式显示
      */
     handleAgentContent(event) {
-        if (event.content && this.currentMessageElement) {
-            console.log('收到Agent内容:', JSON.stringify(event.content));
+        // 处理并行分组标记
+        if (event.data?.parallel_group && this.currentMessageElement) {
+            if (event.data.parallel_group === 'start') {
+                const count = event.data.count || 0;
+                const tasks = event.data.tasks || [];
 
-            // 立即处理内容，不再使用缓存队列
-            // 根据当前状态决定输出位置
+                // SUMMARY_REPORT 不进并行卡片，直接显示在主对话区
+                const parallelTasks = tasks.filter(t => t.agent_name !== 'SUMMARY_REPORT');
+                const summaryTasks = tasks.filter(t => t.agent_name === 'SUMMARY_REPORT');
+
+                // 如果只有 SUMMARY_REPORT，不创建并行分组
+                if (parallelTasks.length === 0) {
+                    this._parallelCallIds = new Set();
+                    this._parallelTotal = 0;
+                    this._parallelCompleted = 0;
+                    return;
+                }
+
+                const groupDiv = document.createElement('div');
+                groupDiv.className = 'parallel-group';
+
+                // 为每个并行任务预创建折叠卡片
+                let cardsHtml = '';
+                parallelTasks.forEach((t, idx) => {
+                    const taskId = t.call_id || `parallel_${idx}`;
+                    const agentName = this.escapeHtml(t.agent_name || '');
+                    const taskDesc = this.escapeHtml(t.task || '');
+                    cardsHtml += `
+                        <div class="parallel-task-card" data-parallel-call-id="${taskId}" id="ptask_${taskId}">
+                            <div class="parallel-task-header" onclick="toggleParallelTask('${taskId}')">
+                                <span class="parallel-task-status"><i class="fas fa-spinner fa-spin"></i></span>
+                                <span class="parallel-task-name">${agentName}</span>
+                                <span class="parallel-task-desc">${taskDesc}</span>
+                                <i class="fas fa-chevron-down parallel-task-toggle" id="ptoggle_${taskId}"></i>
+                            </div>
+                            <div class="parallel-task-body" id="pbody_${taskId}" style="display: none;"></div>
+                        </div>
+                    `;
+                });
+
+                groupDiv.innerHTML = `
+                    <div class="parallel-group-header">
+                        <i class="fas fa-layer-group"></i>
+                        <span>并行执行 ${parallelTasks.length} 个子任务</span>
+                        <span class="parallel-group-progress" id="pg_progress">0/${parallelTasks.length} 完成</span>
+                    </div>
+                    ${cardsHtml}
+                `;
+                this.currentMessageElement.appendChild(groupDiv);
+                this._currentParallelGroup = groupDiv;
+                this._parallelCallIds = new Set(parallelTasks.map(t => t.call_id).filter(Boolean));
+                this._parallelTaskDescMap = {};
+                // 改进：改用数组来追踪同一个并行任务的多个文件操作
+                // 结构：parallelCallId → [{ toolCallId, filepath, startTime }, ...]
+                this._parallelActiveFiles = {}; // 替代 _parallelActiveFile
+                this._parallelCallIdToStepIndex = {}; // parallelCallId → stepIndex (预计算映射)
+                parallelTasks.forEach(t => {
+                    if (t.call_id && t.task) {
+                        this._parallelTaskDescMap[t.call_id] = t.task;
+                    }
+                });
+                // 预计算: 将每个并行任务映射到对应的计划步骤
+                if (this.activePlan) {
+                    const usedStepIndices = new Set();
+                    parallelTasks.forEach(t => {
+                        if (!t.call_id) return;
+                        const taskDesc = t.task || '';
+                        const agentType = t.agent_name || '';
+                        let bestMatch = null;
+                        let bestScore = 0;
+                        for (const group of this.activePlan.groups) {
+                            for (const step of group.steps) {
+                                if (usedStepIndices.has(step.index)) continue;
+                                let score = 0;
+                                // 文本完全包含匹配
+                                if (taskDesc && step.text) {
+                                    if (taskDesc.includes(step.text) || step.text.includes(taskDesc)) {
+                                        score = Math.min(taskDesc.length, step.text.length) * 2;
+                                    } else {
+                                        // 模糊匹配：共有关键词
+                                        const keywords = taskDesc.split(/[\s，、,。]+/).filter(k => k.length > 1);
+                                        const matched = keywords.filter(k => step.text.includes(k));
+                                        if (matched.length > 0) {
+                                            score = matched.join('').length;
+                                        }
+                                    }
+                                }
+                                // agent类型匹配加分
+                                if (agentType && step.type && agentType.toUpperCase().includes(step.type.toUpperCase())) {
+                                    score += 10;
+                                }
+                                if (score > bestScore) {
+                                    bestScore = score;
+                                    bestMatch = step;
+                                }
+                            }
+                        }
+                        if (bestMatch) {
+                            this._parallelCallIdToStepIndex[t.call_id] = bestMatch.index;
+                            usedStepIndices.add(bestMatch.index);
+                        }
+                    });
+                    console.log('📋 并行任务→步骤映射:', this._parallelCallIdToStepIndex);
+
+                    // 自动将匹配的步骤标记为 in_progress
+                    for (const stepIndex of Object.values(this._parallelCallIdToStepIndex)) {
+                        if (this.planStepElements?.[stepIndex]) {
+                            const stepEl = this.planStepElements[stepIndex];
+                            stepEl.className = `plan-step in_progress`;
+                            const statusSpan = stepEl.querySelector('.step-status');
+                            if (statusSpan) {
+                                statusSpan.className = 'step-status in_progress';
+                                statusSpan.innerHTML = this._stepStatusIcon('in_progress');
+                            }
+                        }
+                        // 同步更新 activePlan 中的状态
+                        if (this.activePlan) {
+                            const step = this._findStepByIndex(stepIndex);
+                            if (step) step.status = 'in_progress';
+                        }
+                    }
+                }
+                this._parallelCompleted = 0;
+                this._parallelTotal = parallelTasks.length;
+            } else if (event.data.parallel_group === 'end') {
+                if (this._currentParallelGroup) {
+                    const footer = document.createElement('div');
+                    footer.className = 'parallel-group-footer';
+                    footer.innerHTML = '<i class="fas fa-check-circle"></i> 并行任务全部完成';
+                    this._currentParallelGroup.appendChild(footer);
+
+                    const progress = this._currentParallelGroup.querySelector('.parallel-group-progress');
+                    if (progress) progress.textContent = `${this._parallelTotal}/${this._parallelTotal} 完成`;
+
+                    this._currentParallelGroup = null;
+                    // 不清空 _parallelCallIds：tool_result_end 事件可能在 group end 之后到达
+                    // _parallelCallIds 会在新的 parallel_group start 或 startNewConversation 时重置
+                }
+            }
+            return;
+        }
+
+        // 并行子任务内容路由 - 通过 parallel_call_id 定位到正确的折叠卡片
+        const parallelCallId = event.data?.parallel_call_id;
+        if (parallelCallId && this._parallelCallIds?.has(parallelCallId)) {
+            if (event.content) {
+                // 改进：追踪活跃的文件操作工具 call_id，而不仅仅是最后一个
+                const activeFilePath = this._getCurrentFilePathForParallelTask(parallelCallId);
+
+                const body = document.getElementById(`pbody_${parallelCallId}`);
+                if (body) {
+                    // 每个并行子任务独立维护 tagBuffer 和 think 状态
+                    if (body._tagBuffer === undefined) body._tagBuffer = '';
+                    if (body._thinkState === undefined) {
+                        body._thinkState = {
+                            isInThinkBlock: false,
+                            currentThinkBlock: null,
+                            currentThinkElement: null
+                        };
+                    }
+
+                    const fullContent = body._tagBuffer + event.content;
+                    const result = this._processThinkContentIsolated(fullContent, body, body._thinkState);
+                    body._tagBuffer = result.tagBuffer;
+
+                    // 文件预览只写入过滤后的内容（不含 think 块）
+                    if (activeFilePath && result.processedContent) {
+                        this.updateFileContentStream(activeFilePath, result.processedContent);
+                    }
+
+                    if (result.processedContent) {
+                        // 取 body 的最后一个子元素：如果是 .parallel-task-text 则继续追加，
+                        // 否则说明中间插入了工具调用或 think 块，需要创建新的文本块保证顺序正确
+                        let textEl = body.lastElementChild;
+                        if (!textEl || !textEl.classList.contains('parallel-task-text')) {
+                            textEl = document.createElement('div');
+                            textEl.className = 'parallel-task-text';
+                            textEl._textBuffer = '';
+                            body.appendChild(textEl);
+                        }
+                        if (textEl._textBuffer === undefined) textEl._textBuffer = '';
+                        textEl._textBuffer += result.processedContent;
+                        textEl.innerHTML = this.renderMarkdown(textEl._textBuffer);
+                    }
+                }
+            }
+            this.scrollToBottom();
+            return;
+        }
+
+        if (event.content && this.currentMessageElement) {
+            const routeParallelId = event.data?.parallel_call_id;
+
+            // 非并行路径也同步文件预览（如 SUMMARY_REPORT 的文件写入）
+            if (routeParallelId) {
+                const currentFile = this._getCurrentFilePathForParallelTask(routeParallelId);
+                if (currentFile) {
+                    this.updateFileContentStream(currentFile, event.content);
+                }
+            }
+
             if (this.currentToolCall) {
-                // 如果有正在执行的工具，追加到工具内容区域
                 this.appendToToolContent(event.content);
             } else if (this.lastCompletedToolCall) {
-                // 如果有刚完成的工具，追加到工具后的内容区域
                 this.appendToToolAfterContent(event.content);
             } else {
-                // 否则追加到消息区域
                 this.appendToCurrentMessage(event.content);
             }
         }
     }
-
     /**
      * 处理工具调用开始事件
      */
@@ -441,10 +707,107 @@ class AIAssistantApp {
         const callId = event.tool?.call_id;
         const toolName = event.tool_name || event.tool?.name || '未知工具';
 
+        // 标记：自上次内容输出后有工具调用介入
+        this._hadToolSinceLastContent = true;
+
+        // 并行任务的子工具调用 → 路由到折叠卡片内部
+        const parallelCallId = event.data?.parallel_call_id;
+        if (parallelCallId && this._parallelCallIds?.has(parallelCallId)) {
+            // 需要隐藏但仍需跟踪状态的工具（如 stream_file_operation）
+            if (this.hideBoxKeepButtonTools.includes(toolName)) {
+                const toolDiv = this.createToolCallElement(toolName, callId);
+                toolDiv.style.display = 'none';
+                if (callId) {
+                    this.toolCallMap.set(callId, toolDiv);
+                    this.toolCallStates.set(callId, {
+                        status: 'starting', toolName, startTime: Date.now(), element: toolDiv
+                    });
+                    toolDiv.setAttribute('data-call-id', callId);
+                    toolDiv.dataset.callId = callId;
+                    toolDiv.dataset.toolName = toolName;
+                    toolDiv.dataset.parallelCallId = parallelCallId;
+                }
+                return;
+            }
+            if (this.fullyHiddenTools.includes(toolName)) {
+                return;
+            }
+            const body = document.getElementById(`pbody_${parallelCallId}`);
+            if (body) {
+                const toolDiv = this.createToolCallElement(toolName, callId);
+
+                if (callId) {
+                    this.toolCallMap.set(callId, toolDiv);
+                    this.toolCallStates.set(callId, {
+                        status: 'starting', toolName, startTime: Date.now(), element: toolDiv
+                    });
+                    toolDiv.setAttribute('data-call-id', callId);
+                    toolDiv.dataset.callId = callId;
+                    toolDiv.dataset.toolName = toolName;
+                }
+
+                // 查找或创建当前工具组 — 按内容流顺序分组
+                let toolGroup = body.lastElementChild;
+                if (!toolGroup || !toolGroup.classList.contains('parallel-tool-group')) {
+                    // 上一个元素不是工具组（可能是文本块或think块），创建新的折叠工具组
+                    toolGroup = document.createElement('div');
+                    toolGroup.className = 'parallel-tool-group';
+                    toolGroup._toolCount = 0;
+
+                    const toggleBtn = document.createElement('button');
+                    toggleBtn.className = 'parallel-tool-toggle-btn';
+                    toggleBtn.innerHTML = '📋 显示工具细节 (1)';
+                    toggleBtn.dataset.expanded = 'false';
+                    toggleBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        const expand = toggleBtn.dataset.expanded === 'false';
+                        toggleBtn.dataset.expanded = expand ? 'true' : 'false';
+                        toggleBtn.innerHTML = expand
+                            ? `🔽 隐藏工具细节 (${toolGroup._toolCount})`
+                            : `📋 显示工具细节 (${toolGroup._toolCount})`;
+                        const container = toolGroup.querySelector('.tool-group-container');
+                        if (container) container.style.display = expand ? 'block' : 'none';
+                    };
+                    toolGroup._toggleBtn = toggleBtn;
+                    toolGroup.appendChild(toggleBtn);
+
+                    const container = document.createElement('div');
+                    container.className = 'tool-group-container';
+                    container.style.display = 'none';
+                    toolGroup.appendChild(container);
+
+                    body.appendChild(toolGroup);
+                }
+
+                // 将工具添加到当前组的容器中
+                const container = toolGroup.querySelector('.tool-group-container');
+                container.appendChild(toolDiv);
+                toolGroup._toolCount = (toolGroup._toolCount || 0) + 1;
+                // 更新按钮上的计数
+                const btn = toolGroup._toggleBtn;
+                if (btn) {
+                    const expanded = btn.dataset.expanded === 'true';
+                    btn.innerHTML = expanded
+                        ? `🔽 隐藏工具细节 (${toolGroup._toolCount})`
+                        : `📋 显示工具细节 (${toolGroup._toolCount})`;
+                }
+
+                this.currentToolCall = toolDiv;
+                this.updateToolCallStatus(callId, 'running');
+            }
+            return;
+        }
+
         console.log(`🚀 工具调用开始: ${toolName} (call_id: ${callId})`);
 
+        // 重置思考块状态，确保每个工具调用独立
+        if (this.isInThinkBlock) {
+            this.endThinkBlock();
+        }
+        this.tagBuffer = '';
+
         // 检查是否需要隐藏工具调用框
-        const shouldHideCall = this.fullyHiddenTools.includes(toolName) || this.hideCallOnlyTools.includes(toolName);
+        const shouldHideCall = this.fullyHiddenTools.includes(toolName) || this.hideCallOnlyTools.includes(toolName) || this.hideBoxKeepButtonTools.includes(toolName);
 
         if (shouldHideCall) {
             console.log(`🔇 ${toolName} 工具不显示调用框`);
@@ -457,7 +820,7 @@ class AIAssistantApp {
                 return;
             }
 
-            // 对于完全隐藏的工具（如 artifact_write、terminate），创建隐藏元素用于状态跟踪
+            // 对于完全隐藏的工具和隐藏框但保留按钮的工具，创建隐藏元素用于状态跟踪
             const toolCallElement = this.createToolCallElement(toolName, callId);
             toolCallElement.style.display = 'none';
 
@@ -480,7 +843,17 @@ class AIAssistantApp {
                 this.currentMessageElement.appendChild(toolCallElement);
             }
 
-            this.currentToolCall = toolCallElement;
+            // 判断是否应设置 currentToolCall（会拦截后续 AGENT_CONTENT）
+            // 1. sub_agent_run 不设置，其子 agent 内容直接显示在主对话区
+            // 2. 带 parallel_call_id 的子工具不设置（属于并行子 agent 内部工具）
+            // 3. hideBoxKeepButtonTools 不设置（隐藏工具不应拦截内容流）
+            const eventParallelId = event.data?.parallel_call_id;
+            const isChildOfParallelAgent = !!eventParallelId;
+            if (toolName === 'sub_agent_run') {
+                this.lastCompletedToolCall = null;
+            } else if (!isChildOfParallelAgent && !this.hideBoxKeepButtonTools.includes(toolName)) {
+                this.currentToolCall = toolCallElement;
+            }
             return;
         }
 
@@ -516,9 +889,10 @@ class AIAssistantApp {
         // 设置为当前工具调用（用于向后兼容）
         this.currentToolCall = toolCallElement;
 
-        // 添加到DOM
-        if (this.currentMessageElement) {
-            this.currentMessageElement.appendChild(toolCallElement);
+        // 添加到DOM（如果有并行分组容器则添加到分组中）
+        const parentElement = this._currentParallelGroup || this.currentMessageElement;
+        if (parentElement) {
+            parentElement.appendChild(toolCallElement);
 
             // 更新工具状态显示
             this.updateToolCallStatus(callId, 'running');
@@ -545,7 +919,46 @@ class AIAssistantApp {
         const shouldHideArgs = this.fullyHiddenTools.includes(toolName) || this.hideCallOnlyTools.includes(toolName);
 
         if (shouldHideArgs) {
-            console.log(`🔇 ${toolName} 工具跳过参数显示`);
+            // sub_agent_run：提取 agent_name/task，标记对应计划步骤为 in_progress
+            if (toolName === 'sub_agent_run' && event.tool_args && this.activePlan) {
+                const agentName = event.tool_args.agent_name || '';
+                const taskDesc = event.tool_args.task || '';
+                const parallelCallId = event.data?.parallel_call_id;
+                // 仅处理不在并行组中的 sub_agent_run（如被过滤的 SUMMARY_REPORT）
+                if (parallelCallId && !this._parallelCallIds?.has(parallelCallId)) {
+                    this._markStepInProgressByMatch(agentName, taskDesc);
+                }
+            }
+            return;
+        }
+
+        // hideBoxKeepButtonTools: 工具框隐藏但仍需处理参数（如文件按钮）
+        if (this.hideBoxKeepButtonTools.includes(toolName)) {
+            if (toolName === 'stream_file_operation' && event.tool_args) {
+                const toolCallElement = this.getToolCallElement(event);
+                if (toolCallElement) {
+                    const filepath = event.tool_args?.filepath || event.tool_args?.path || '';
+                    const operationMode = event.tool_args?.operation_mode || event.tool_args?.mode || '文件操作';
+                    const parallelCallId = event.data?.parallel_call_id;
+                    if (filepath) {
+                        toolCallElement.dataset.filepath = filepath;
+                        toolCallElement.dataset.operationMode = operationMode || '';
+                        this.addFileOperationButton({ filepath, operationMode, toolCallElement, parallelCallId });
+                        // 记录并行子任务的活跃文件写入，支持多个文件操作
+                        if (parallelCallId) {
+                            const toolCallId = event.tool?.call_id;
+                            if (!this._parallelActiveFiles) this._parallelActiveFiles = {};
+                            if (!this._parallelActiveFiles[parallelCallId]) this._parallelActiveFiles[parallelCallId] = [];
+                            // 添加到活跃文件列表（最后一个是"当前"的）
+                            this._parallelActiveFiles[parallelCallId].push({
+                                toolCallId,
+                                filepath,
+                                startTime: Date.now()
+                            });
+                        }
+                    }
+                }
+            }
             return;
         }
 
@@ -586,7 +999,20 @@ class AIAssistantApp {
                         operationMode: toolCallElement.dataset.operationMode
                     });
 
-                    this.addFileOperationButton({ filepath, operationMode, toolCallElement });
+                    const parallelCallId = event.data?.parallel_call_id;
+                    this.addFileOperationButton({ filepath, operationMode, toolCallElement, parallelCallId });
+                    // 记录并行子任务的活跃文件写入，支持多个文件操作
+                    if (parallelCallId) {
+                        const toolCallId = event.tool?.call_id;
+                        if (!this._parallelActiveFiles) this._parallelActiveFiles = {};
+                        if (!this._parallelActiveFiles[parallelCallId]) this._parallelActiveFiles[parallelCallId] = [];
+                        // 添加到活跃文件列表
+                        this._parallelActiveFiles[parallelCallId].push({
+                            toolCallId,
+                            filepath,
+                            startTime: Date.now()
+                        });
+                    }
                 } else {
                     console.warn('⚠️ 文件操作但没有filepath参数');
                 }
@@ -601,8 +1027,16 @@ class AIAssistantApp {
         const callId = event.tool?.call_id;
         const toolName = event.tool_name || event.tool?.name || this.toolCallStates.get(callId)?.toolName || '未知工具';
 
+        // 对于隐藏工具，初始化结果内容追踪
+        if (this.fullyHiddenTools.includes(toolName)) {
+            const toolState = this.toolCallStates.get(callId);
+            if (toolState) {
+                toolState.resultContent = '';  // 初始化结果内容
+            }
+        }
+
         // 跳过完全隐藏和只隐藏调用框的工具的结果开始事件
-        if (this.fullyHiddenTools.includes(toolName) || this.hideCallOnlyTools.includes(toolName)) {
+        if (this.fullyHiddenTools.includes(toolName) || this.hideCallOnlyTools.includes(toolName) || this.hideBoxKeepButtonTools.includes(toolName)) {
             console.log(`🔇 ${toolName} 工具跳过结果开始显示`);
             return;
         }
@@ -619,6 +1053,7 @@ class AIAssistantApp {
                 // 显示工具结果区域
                 resultElement.style.display = 'block';
                 resultElement.innerHTML = '';  // 清空之前的内容
+                resultElement._textBuffer = '';  // 重置Markdown缓冲区
                 console.log(`✅ 工具结果区域已准备就绪: ${toolName} (call_id: ${callId})`);
             } else {
                 console.warn(`⚠️ 工具结果元素不存在，正在创建: ${toolName} (call_id: ${callId})`);
@@ -653,9 +1088,15 @@ class AIAssistantApp {
         const callId = event.tool?.call_id;
         const toolName = event.tool_name || event.tool?.name || this.toolCallStates.get(callId)?.toolName || '未知工具';
 
-        // 只隐藏完全隐藏列表中的工具结果内容
+        // 对于完全隐藏的工具（如 planning、mark_step），保存结果内容但不显示
         if (this.fullyHiddenTools.includes(toolName)) {
-            console.log(`🔇 ${toolName} 工具跳过结果内容显示`);
+            console.log(`🔇 ${toolName} 工具结果已记录但不显示`);
+            if (event.content) {
+                const toolState = this.toolCallStates.get(callId);
+                if (toolState) {
+                    toolState.resultContent = (toolState.resultContent || '') + event.content;
+                }
+            }
             return;
         }
 
@@ -668,6 +1109,12 @@ class AIAssistantApp {
                 // 直接追加到当前消息区域，就像 agent_content 一样
                 this.appendToCurrentMessage(contentWithNewlines);
             }
+            return;
+        }
+
+        // 对于隐藏框但保留按钮的工具（如 stream_file_operation），跳过工具状态消息
+        // 真正的文件内容通过 handleAgentContent → _parallelActiveFile 路径写入
+        if (this.hideBoxKeepButtonTools.includes(toolName)) {
             return;
         }
 
@@ -702,23 +1149,18 @@ class AIAssistantApp {
             
             // 确保结果元素可见
             resultElement.style.display = 'block';
-            
-            // 格式化内容并使用innerHTML来支持换行符
-            const formattedContent = this.formatTextContent(event.content);
-            const beforeLength = resultElement.innerHTML.length;
-            resultElement.innerHTML += formattedContent;
-            const afterLength = resultElement.innerHTML.length;
-            
-            console.log(`📝 内容已追加: ${toolName} (call_id: ${callId}, 原长度: ${beforeLength}, 新长度: ${afterLength}, 追加: ${afterLength - beforeLength})`);
 
-            // 如果是文件操作，实时更新侧边栏（基于上次记录的文件路径）
-            if (event.tool_name === 'stream_file_operation') {
-                const filepath = toolCallElement.dataset.filepath;
-                if (filepath) {
-                    this.updateFileContentStream(filepath, event.content);
-                }
+            // 初始化缓冲区
+            if (resultElement._textBuffer === undefined) {
+                resultElement._textBuffer = '';
             }
-            
+
+            // 累积内容并渲染Markdown
+            resultElement._textBuffer += event.content;
+            resultElement.innerHTML = this.renderMarkdown(resultElement._textBuffer);
+
+            console.log(`📝 内容已渲染: ${toolName} (call_id: ${callId})`);
+
             // 滚动到底部以显示最新内容
             this.scrollToBottom();
         } else {
@@ -740,15 +1182,120 @@ class AIAssistantApp {
         const callId = event.tool?.call_id;
         const toolName = this.toolCallStates.get(callId)?.toolName || event.tool_name || event.tool?.name || '未知工具';
 
+        // 并行任务的父工具完成 → 更新折叠卡片状态
+        const parallelCallId = event.data?.parallel_call_id;
+        if (parallelCallId && this._parallelCallIds?.has(parallelCallId)) {
+            // 只有父级 sub_agent_run 自身完成时（callId === parallelCallId）才更新卡片状态和进度
+            // 子任务内部的工具调用（callId !== parallelCallId）不计入进度
+            if (callId === parallelCallId) {
+                const card = document.getElementById(`ptask_${parallelCallId}`);
+                if (card) {
+                    const statusEl = card.querySelector('.parallel-task-status');
+                    if (statusEl) statusEl.innerHTML = '<i class="fas fa-check-circle" style="color:#10b981"></i>';
+                    card.classList.add('completed');
+
+                    // 子任务完成时，标记该子任务关联的所有文件为完成
+                    this._markParallelTaskFilesCompleted(parallelCallId);
+
+                    // 更新进度（group 可能已 end，通过 card 向上查找 parallel-group）
+                    this._parallelCompleted = (this._parallelCompleted || 0) + 1;
+                    const group = this._currentParallelGroup || card.closest('.parallel-group');
+                    if (group) {
+                        const progress = group.querySelector('.parallel-group-progress');
+                        if (progress) progress.textContent = `${this._parallelCompleted}/${this._parallelTotal} 完成`;
+                    }
+                }
+            }
+            // 清理当前工具引用
+            if (this.currentToolCall) this.currentToolCall = null;
+            return;
+        }
+
         // 跳过完全隐藏和只隐藏调用框的工具的结果结束事件
-        if (this.fullyHiddenTools.includes(toolName) || this.hideCallOnlyTools.includes(toolName)) {
+        if (this.fullyHiddenTools.includes(toolName) || this.hideCallOnlyTools.includes(toolName) || this.hideBoxKeepButtonTools.includes(toolName)) {
             console.log(`🔇 ${toolName} 工具跳过结果结束显示`);
+
+            // 特殊处理：planning 和 mark_step 工具
+            if (toolName === 'planning' || toolName === 'mark_step') {
+                // 获取工具结果内容（可能被隐藏，但内容还在状态中）
+                const toolState = this.toolCallStates.get(callId);
+                if (toolState && toolState.resultContent) {
+                    // 解析计划
+                    this.activePlan = this.parsePlanFromMarkdown(toolState.resultContent);
+                    this.renderPlanPanel();
+
+                    // 打开侧边栏并显示计划视图
+                    if (this.elements.sidebar) {
+                        this.elements.sidebar.classList.add('open');
+                    }
+                    this.showSidebarView('plan');
+
+                    console.log('📋 计划已加载到侧边栏');
+                }
+            }
+
+            // stream_file_operation 的 TOOL_RESULT_END 不代表文件写完
+            // 实际文件内容在后续 LLM 回合通过 write_chunk 持续写入
+            // 文件完成标记延迟到父级 sub_agent_run 完成时处理
+            if (toolName === 'stream_file_operation') {
+                // 不做任何操作，等父级 sub_agent_run 完成时统一标记
+                console.log(`📝 stream_file_operation TOOL_RESULT_END (延迟标记完成)`);
+            }
+
+            // 非并行的 sub_agent_run 完成时（如 SUMMARY_REPORT），标记其关联文件完成
+            if (toolName === 'sub_agent_run') {
+                const pcId = event.data?.parallel_call_id;
+                if (!pcId || !this._parallelCallIds?.has(pcId)) {
+                    // 非并行路径：标记所有关联的 stream_file_operation 文件为完成
+                    for (const [cid, el] of this.toolCallMap.entries()) {
+                        if (el && el.dataset?.toolName === 'stream_file_operation') {
+                            // 非并行 sub_agent_run 没有 parallelCallId，标记所有未完成的文件
+                            if (!el.classList.contains('file-completed')) {
+                                this.markFileOperationAsCompleted(el);
+                            }
+                        }
+                    }
+                    // 清除所有非并行的活跃文件映射
+                    if (this._parallelActiveFiles) {
+                        for (const key of Object.keys(this._parallelActiveFiles)) {
+                            if (!this._parallelCallIds?.has(key)) {
+                                delete this._parallelActiveFiles[key];
+                            }
+                        }
+                    }
+                    // 标记对应计划步骤的文件 spinner 完成
+                    if (this.planStepElements) {
+                        for (const stepEl of Object.values(this.planStepElements)) {
+                            if (stepEl.classList.contains('in_progress')) {
+                                const spinners = stepEl.querySelectorAll('.plan-file-status:not(.completed)');
+                                spinners.forEach(s => {
+                                    s.className = 'plan-file-status completed';
+                                    s.innerHTML = '<i class="fas fa-check-circle"></i>';
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            // 清理可能的 currentToolCall 残留
+            if (this.currentToolCall) {
+                const hiddenEl = this.getToolCallElement(event);
+                if (hiddenEl && this.currentToolCall === hiddenEl) {
+                    this.currentToolCall = null;
+                }
+            }
             return;
         }
 
         const toolCallElement = this.getToolCallElement(event);
 
         if (toolCallElement) {
+            // 重置思考块状态，防止跨工具调用泄漏
+            if (this.isInThinkBlock) {
+                this.endThinkBlock();
+            }
+            this.tagBuffer = '';
+
             // 更新工具状态为完成
             this.updateToolCallStatus(callId, 'completed');
 
@@ -808,29 +1355,41 @@ class AIAssistantApp {
      * 标记文件操作为完成状态
      */
     markFileOperationAsCompleted(toolCallElement) {
-        // 查找工具元素内的文件操作按钮
-        const fileButton = toolCallElement.querySelector('.file-operation');
+        // 更新计划面板中的文件状态
+        const statusEl = toolCallElement._planFileStatus;
+        const downloadBtn = toolCallElement._planDownloadBtn;
 
-        if (fileButton) {
-            // 添加完成状态类
-            fileButton.classList.add('completed');
+        if (statusEl) {
+            statusEl.className = 'plan-file-status completed';
+            statusEl.innerHTML = '<i class="fas fa-check-circle"></i>';
+        }
+        if (downloadBtn) {
+            downloadBtn.classList.add('ready');
+        }
 
-            // 显示准备就绪徽章
-            const readyBadge = fileButton.querySelector('.file-ready-badge');
-            if (readyBadge) {
-                readyBadge.style.display = 'flex';
+        toolCallElement.classList.add('file-completed');
+        console.log('📄 文件操作已标记为完成');
+    }
+
+    /**
+     * 并行子任务完成时，标记其关联的所有文件为完成状态
+     */
+    _markParallelTaskFilesCompleted(parallelCallId) {
+        // 遍历 toolCallMap，找到属于该并行子任务的 stream_file_operation 工具
+        for (const [callId, el] of this.toolCallMap.entries()) {
+            if (el && el.dataset?.toolName === 'stream_file_operation' && el.dataset?.parallelCallId === parallelCallId) {
+                this.markFileOperationAsCompleted(el);
             }
-
-            // 添加完成状态图标
-            const existingStatus = fileButton.querySelector('.file-status');
-            if (!existingStatus) {
-                const statusDiv = document.createElement('div');
-                statusDiv.className = 'file-status';
-                statusDiv.innerHTML = '<i class="fas fa-check-circle"></i>';
-                fileButton.appendChild(statusDiv);
-            }
-
-            console.log('📄 文件操作已标记为完成');
+        }
+        // 也通过 step 文件容器查找仍在转圈的文件图标
+        const stepIndex = this._parallelCallIdToStepIndex?.[parallelCallId];
+        if (stepIndex !== undefined && this.planStepElements?.[stepIndex]) {
+            const stepEl = this.planStepElements[stepIndex];
+            const spinners = stepEl.querySelectorAll('.plan-file-status:not(.completed)');
+            spinners.forEach(statusEl => {
+                statusEl.className = 'plan-file-status completed';
+                statusEl.innerHTML = '<i class="fas fa-check-circle"></i>';
+            });
         }
     }
 
@@ -981,6 +1540,21 @@ class AIAssistantApp {
      */
     handleError(event) {
         console.error('Agent执行错误:', event.error_message);
+
+        // 并行子任务的错误 → 显示在卡片内，不影响全局状态
+        const parallelCallId = event.data?.parallel_call_id;
+        if (parallelCallId && this._parallelCallIds?.has(parallelCallId)) {
+            const body = document.getElementById(`pbody_${parallelCallId}`);
+            if (body) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'parallel-task-text message-text';
+                errorDiv.style.color = '#dc2626';
+                errorDiv.textContent = `❌ 执行失败: ${event.error_message || '未知错误'}`;
+                body.appendChild(errorDiv);
+            }
+            return;
+        }
+
         this.addErrorMessage(event.content || event.error_message);
         this.updateStatus('执行失败', 'error');
         this.setInputEnabled(true);
@@ -1019,7 +1593,7 @@ class AIAssistantApp {
 
 
     /**
-     * 向当前消息追加内容 - 实现流式效果
+     * 向当前消息追加内容 - Markdown流式渲染
      */
     appendToCurrentMessage(content) {
         if (!this.currentMessageElement) {
@@ -1027,12 +1601,27 @@ class AIAssistantApp {
             return;
         }
 
-        let textElement = this.currentMessageElement.querySelector('.message-text');
+        // 查找可复用的文本元素：必须是 currentMessageElement 的最后一个直接子 .message-text
+        // 且后面没有并行组、工具等其他元素
+        let textElement = null;
+        const lastChild = this.currentMessageElement.lastElementChild;
+        if (lastChild && lastChild.classList.contains('message-text')) {
+            textElement = lastChild;
+        }
         if (!textElement) {
             textElement = document.createElement('div');
             textElement.className = 'message-text';
-            this.currentMessageElement.insertBefore(textElement, this.currentMessageElement.firstChild);
-            console.log('创建新的文本元素');
+            textElement._textBuffer = '\n\n';
+            this.currentMessageElement.appendChild(textElement);
+        } else if (this._hadToolSinceLastContent && textElement._textBuffer) {
+            // 复用已有文本块，但中间有工具调用介入，追加换行分隔
+            textElement._textBuffer += '\n\n';
+        }
+        this._hadToolSinceLastContent = false;
+
+        // 初始化缓冲区
+        if (textElement._textBuffer === undefined) {
+            textElement._textBuffer = '';
         }
 
         // 将新内容与标签缓冲区合并
@@ -1048,20 +1637,18 @@ class AIAssistantApp {
         // 更新标签缓冲区
         this.tagBuffer = result.tagBuffer;
 
-        // 追加普通内容
+        // 累积内容并渲染Markdown
         if (result.processedContent) {
             console.log('📝 追加普通内容:', JSON.stringify(result.processedContent));
-
-            // 使用文本节点追加，保持换行
-            const textNode = document.createTextNode(result.processedContent);
-            textElement.appendChild(textNode);
+            textElement._textBuffer += result.processedContent;
+            textElement.innerHTML = this.renderMarkdown(textElement._textBuffer);
         }
 
         this.scrollToBottom();
     }
 
     /**
-     * 向工具内容区域追加内容 - 实现流式效果
+     * 向工具内容区域追加内容 - Markdown流式渲染
      */
     appendToToolContent(content) {
         if (!this.currentToolCall) {
@@ -1078,27 +1665,35 @@ class AIAssistantApp {
         // 将新内容与标签缓冲区合并
         const fullContent = this.tagBuffer + content;
 
-        console.log('💭 [工具内容] 标签缓冲区:', JSON.stringify(this.tagBuffer), '新内容:', JSON.stringify(content), '合并后:', JSON.stringify(fullContent));
-
-        // 处理思考内容 - 传入工具内容元素（而不是整个工具元素）
+        // 处理思考内容 - 传入工具内容元素
         const result = this.processThinkContent(fullContent, contentElement);
-
-        console.log('💭 [工具内容] 处理结果 - 普通内容:', JSON.stringify(result.processedContent), '新缓冲区:', JSON.stringify(result.tagBuffer));
 
         // 更新标签缓冲区
         this.tagBuffer = result.tagBuffer;
 
-        // 使用文本节点追加内容
+        // 获取或创建文本子元素（与think块分离）
+        let textElement = contentElement.querySelector('.tool-content-text');
+        if (!textElement) {
+            textElement = document.createElement('div');
+            textElement.className = 'tool-content-text';
+            textElement._textBuffer = '';
+            contentElement.appendChild(textElement);
+        }
+        if (textElement._textBuffer === undefined) {
+            textElement._textBuffer = '';
+        }
+
+        // 累积内容并渲染Markdown
         if (result.processedContent) {
-            const textNode = document.createTextNode(result.processedContent);
-            contentElement.appendChild(textNode);
+            textElement._textBuffer += result.processedContent;
+            textElement.innerHTML = this.renderMarkdown(textElement._textBuffer);
         }
 
         this.scrollToBottom();
     }
 
     /**
-     * 向工具执行后的区域追加内容 - 工具执行完成后的 agent_content
+     * 向工具执行后的区域追加内容 - Markdown流式渲染
      */
     appendToToolAfterContent(content) {
         if (!this.lastCompletedToolCall) {
@@ -1117,12 +1712,26 @@ class AIAssistantApp {
             this.lastCompletedToolCall.appendChild(afterContentElement);
         }
 
+        // 获取或创建文本子元素（与think块分离）
+        let textElement = afterContentElement.querySelector('.tool-after-text');
+        if (!textElement) {
+            textElement = document.createElement('div');
+            textElement.className = 'tool-after-text';
+            textElement._textBuffer = '';
+            afterContentElement.appendChild(textElement);
+        }
+
+        // 初始化缓冲区
+        if (textElement._textBuffer === undefined) {
+            textElement._textBuffer = '';
+        }
+
         // 将新内容与标签缓冲区合并
         const fullContent = this.tagBuffer + content;
 
         console.log('💭 [工具后内容] 标签缓冲区:', JSON.stringify(this.tagBuffer), '新内容:', JSON.stringify(content), '合并后:', JSON.stringify(fullContent));
 
-        // 处理思考内容 - 传入工具后内容元素（而不是整个工具元素）
+        // 处理思考内容 - 传入afterContentElement用于放置think块
         const result = this.processThinkContent(fullContent, afterContentElement);
 
         console.log('💭 [工具后内容] 处理结果 - 普通内容:', JSON.stringify(result.processedContent), '新缓冲区:', JSON.stringify(result.tagBuffer));
@@ -1130,10 +1739,10 @@ class AIAssistantApp {
         // 更新标签缓冲区
         this.tagBuffer = result.tagBuffer;
 
-        // 使用文本节点追加内容
+        // 累积内容并渲染Markdown到textElement
         if (result.processedContent) {
-            const textNode = document.createTextNode(result.processedContent);
-            afterContentElement.appendChild(textNode);
+            textElement._textBuffer += result.processedContent;
+            textElement.innerHTML = this.renderMarkdown(textElement._textBuffer);
         }
 
         this.scrollToBottom();
@@ -1202,60 +1811,99 @@ class AIAssistantApp {
     /**
      * 添加文件操作信息
      */
-    addFileOperationButton({ filepath, operationMode, toolCallElement }) {
-        const fileDiv = document.createElement('button');
-        fileDiv.type = 'button';
-        fileDiv.className = 'file-operation button-like';
-        fileDiv.onclick = () => this.showFileContent(filepath, operationMode);
-
+    addFileOperationButton({ filepath, operationMode, toolCallElement, parallelCallId }) {
         const fileName = filepath.split('/').pop();
         const fileIcon = this.getFileIcon(fileName);
 
-        // 根据操作模式显示不同的文本
-        let modeText = operationMode || '文件操作';
-        let modeIcon = '';
-
-        switch(operationMode) {
-            case 'append':
-                modeText = 'append';
-                modeIcon = '<i class="fas fa-plus-circle"></i> ';
-                break;
-            case 'write':
-                modeText = 'write';
-                modeIcon = '<i class="fas fa-edit"></i> ';
-                break;
-            case 'read':
-                modeText = 'read';
-                modeIcon = '<i class="fas fa-eye"></i> ';
-                break;
+        // 找到对应的计划子步骤
+        let stepEl = this._findPlanStepForParallelTask(parallelCallId);
+        if (!stepEl) {
+            stepEl = this._findInProgressStep();
+        }
+        // 终极 fallback：找第一个 not_started 的步骤
+        if (!stepEl) {
+            stepEl = this._findFirstNotStartedStep();
         }
 
-        fileDiv.innerHTML = `
-            <div class="file-header">
-                <i class="${fileIcon} file-icon"></i>
-                <div class="file-info">
-                    <div class="file-name">${this.escapeHtml(fileName)}</div>
-                    <div class="file-mode">${modeIcon}${modeText}</div>
-                </div>
-            </div>
-            <div class="file-ready-badge" style="display: none;">
-                <i class="fas fa-check-circle"></i>
-                <span>追加模式已准备就绪: ${this.escapeHtml(fileName)} (追加到末尾)</span>
+        // 去重：同一个步骤下同一个文件路径只显示一个条目
+        if (stepEl) {
+            let filesContainer = stepEl.querySelector('.step-files');
+            if (filesContainer) {
+                const existing = filesContainer.querySelector(`.plan-file-item[data-filepath="${CSS.escape(filepath)}"]`);
+                if (existing) {
+                    // 已存在，复用引用即可
+                    if (toolCallElement) {
+                        toolCallElement._planFileItem = existing;
+                        toolCallElement._planDownloadBtn = existing.querySelector('.plan-file-download');
+                        toolCallElement._planFileStatus = existing.querySelector('.plan-file-status');
+                    }
+                    return existing;
+                }
+            }
+        }
+
+        // 构建文件条目 DOM
+        const fileItem = document.createElement('div');
+        fileItem.className = 'plan-file-item';
+        fileItem.dataset.filepath = filepath;
+
+        const statusSpan = document.createElement('span');
+        statusSpan.className = 'plan-file-status';
+        statusSpan.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+        const downloadBtn = document.createElement('button');
+        downloadBtn.className = 'plan-file-download';
+        downloadBtn.innerHTML = '<i class="fas fa-download"></i> 下载';
+        downloadBtn.onclick = (e) => {
+            e.stopPropagation();
+            this.downloadPlanFile(filepath, fileName);
+        };
+
+        fileItem.innerHTML = `
+            <i class="${fileIcon} plan-file-icon"></i>
+            <div class="plan-file-info">
+                <div class="plan-file-name" title="${this.escapeHtml(filepath)}">${this.escapeHtml(fileName)}</div>
             </div>
         `;
+        fileItem.appendChild(statusSpan);
+        fileItem.appendChild(downloadBtn);
 
-        // 如果提供了 toolCallElement，将文件按钮添加到工具元素中
-        // 否则添加到消息区域（向后兼容）
-        if (toolCallElement) {
-            toolCallElement.appendChild(fileDiv);
+        // 点击文件项 → 打开预览弹窗（可实时查看流式写入）
+        fileItem.onclick = (e) => {
+            if (e.target.closest('.plan-file-download')) return;
+            this.openFilePreview(filepath, fileName);
+        };
 
-            // 保存文件按钮引用，用于后续更新状态
-            toolCallElement.dataset.fileButton = fileDiv;
-        } else if (this.currentMessageElement) {
-            this.currentMessageElement.appendChild(fileDiv);
+        // 挂载到对应计划步骤
+        if (stepEl) {
+            let filesContainer = stepEl.querySelector('.step-files');
+            if (!filesContainer) {
+                filesContainer = document.createElement('div');
+                filesContainer.className = 'step-files';
+                stepEl.appendChild(filesContainer);
+            }
+            filesContainer.appendChild(fileItem);
         }
 
-        return fileDiv;
+        // 保存引用到 toolCallElement 以便完成时更新
+        if (toolCallElement) {
+            toolCallElement._planFileItem = fileItem;
+            toolCallElement._planDownloadBtn = downloadBtn;
+            toolCallElement._planFileStatus = statusSpan;
+        }
+
+        // 打开侧边栏
+        if (this.elements.sidebar) {
+            this.elements.sidebar.classList.add('open');
+        }
+
+        // 初始化该文件的内容缓冲
+        if (!this._planFileContents) this._planFileContents = {};
+        if (!this._planFileContents[filepath]) {
+            this._planFileContents[filepath] = '';
+        }
+
+        return fileItem;
     }
 
     /**
@@ -1318,7 +1966,8 @@ class AIAssistantApp {
         }
 
         // 清空并准备文件内容区域
-        this.elements.fileContent.textContent = '';
+        this.elements.fileContent.innerHTML = '';
+        this._fileContentBuffer = '';
 
         // 保存当前文件路径，用于流式更新
         this.currentFilePath = filePath;
@@ -1329,9 +1978,9 @@ class AIAssistantApp {
             const cachedContent = this.getFileContentFromToolResult(filePath);
 
             if (cachedContent) {
-                // 如果找到了缓存内容，提取纯文本显示
+                // 如果找到了缓存内容，渲染为Markdown
                 const textContent = this.extractTextFromHTML(cachedContent);
-                this.elements.fileContent.textContent = textContent;
+                this.elements.fileContent.innerHTML = this.renderMarkdown(textContent);
 
                 // 更新提示为就绪状态
                 if (fileContentHint) {
@@ -1356,8 +2005,8 @@ class AIAssistantApp {
             const data = await response.json();
 
             if (data.status === 'success' && data.content) {
-                // 直接显示纯文本内容
-                this.elements.fileContent.textContent = data.content;
+                // 渲染Markdown内容
+                this.elements.fileContent.innerHTML = this.renderMarkdown(data.content);
 
                 // 更新提示为就绪状态
                 if (fileContentHint) {
@@ -1456,36 +2105,47 @@ class AIAssistantApp {
     }
 
     /**
+     * 获取指定并行任务当前活跃的文件路径
+     * 返回最后一个（最新的）活跃文件操作
+     */
+    _getCurrentFilePathForParallelTask(parallelCallId) {
+        const files = this._parallelActiveFiles?.[parallelCallId];
+        if (!files || files.length === 0) return null;
+        // 返回最后一个（最新的）文件
+        return files[files.length - 1]?.filepath || null;
+    }
+
+    /**
      * 更新文件内容流
      */
+    // 过滤文件内容中的 agent 进度标记行
+    _filterFileContent(text) {
+        return text
+            .replace(/^[\s\-]*(?:当前开始搜索[：:]|已完成[搜索]*[：:]|---\s*已完成[搜索]*[：:]|正在搜索[：:]|开始搜索[：:]|搜索完成[：:]|开始分析[：:]|分析完成[：:]|当前开始分析[：:]).*$/gm, '')
+            .replace(/\n{3,}/g, '\n\n')
+            .replace(/^\n+/, '');
+    }
+
     updateFileContentStream(filePath, content) {
-        // 如果侧边栏未打开，不进行更新
-        if (!this.elements.sidebar.classList.contains('open')) {
-            return;
-        }
+        if (!content) return;
 
-        // 检查当前打开的文件是否匹配
-        const fileName = filePath.split('/').pop();
+        // 原样累积到缓冲区
+        if (!this._planFileContents) this._planFileContents = {};
+        this._planFileContents[filePath] = (this._planFileContents[filePath] || '') + content;
 
-        // 如果当前打开的文件路径匹配，则流式追加内容
-        if (this.currentFilePath === filePath || this.currentFilePath?.endsWith(fileName)) {
-            console.log(`📄 流式追加内容到侧边栏: ${content.length} 字符`);
-
-            // 直接追加纯文本内容，不进行HTML格式化
-            this.elements.fileContent.textContent += content;
-
-            // 自动滚动到底部
-            const contentElement = this.elements.fileContent;
-            if (contentElement) {
-                contentElement.scrollTop = contentElement.scrollHeight;
+        // 渲染时统一过滤完整文本（避免跨 chunk 的进度行匹配不到）
+        if (this._previewFilePath === filePath) {
+            const contentEl = document.getElementById('filePreviewContent');
+            const downloadBtn = document.getElementById('filePreviewDownloadBtn');
+            if (contentEl) {
+                const filtered = this._filterFileContent(this._planFileContents[filePath]);
+                contentEl.innerHTML = this.renderMarkdown(filtered);
+                // 仅当用户未手动滚动时才自动跟随到底部（实时查看最新内容）
+                if (!contentEl._userScrolled) {
+                    contentEl.scrollTop = contentEl.scrollHeight;
+                }
             }
-
-            // 更新内容提示
-            const fileContentHint = document.getElementById('fileContentHint');
-            if (fileContentHint && fileContentHint.style.display !== 'none') {
-                fileContentHint.className = 'file-content-hint ready';
-                fileContentHint.innerHTML = '<i class="fas fa-sync fa-spin"></i> 正在接收文件内容...';
-            }
+            if (downloadBtn) downloadBtn.style.display = 'inline-flex';
         }
     }
 
@@ -1552,39 +2212,53 @@ class AIAssistantApp {
      * 处理滚动事件
      */
     handleScroll(e) {
+        // 忽略程序触发的滚动
+        if (this._programmaticScrollCount > 0) {
+            return;
+        }
+
         const element = e.target;
         const scrollTop = element.scrollTop;
         const scrollHeight = element.scrollHeight;
         const clientHeight = element.clientHeight;
-        
-        // 计算距离底部的距离
         const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-        
-        // 检测用户是否手动向上滚动
-        if (scrollTop < this.lastScrollTop && distanceFromBottom > this.scrollThreshold) {
+
+        if (distanceFromBottom > this.scrollThreshold) {
             this.userScrolledUp = true;
             this.showScrollToBottomButton();
-        } else if (distanceFromBottom <= this.scrollThreshold) {
-            // 用户滚动到底部附近，重置状态
+        } else {
             this.userScrolledUp = false;
             this.hideScrollToBottomButton();
         }
-        
+
         this.lastScrollTop = scrollTop;
     }
 
     /**
-     * 智能滚动到底部 - 只在用户位于底部时才自动滚动
+     * 智能滚动到底部 - 只在用户位于底部时才自动滚动（去抖）
      */
     scrollToBottom() {
-        // 如果用户手动向上滚动了，就不自动滚动到底部
         if (this.userScrolledUp) {
             return;
         }
-        
-        setTimeout(() => {
+
+        // 去抖：多次快速调用只执行最后一次
+        if (this._scrollRAF) {
+            cancelAnimationFrame(this._scrollRAF);
+        }
+        this._scrollRAF = requestAnimationFrame(() => {
+            this._scrollRAF = null;
+            if (this.userScrolledUp) return;
+            if (!this._programmaticScrollCount) this._programmaticScrollCount = 0;
+            this._programmaticScrollCount++;
             this.elements.chatMessages.scrollTop = this.elements.chatMessages.scrollHeight;
-        }, 50);
+            // 延迟两帧再恢复，确保 scroll 事件完全被忽略
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    this._programmaticScrollCount = Math.max(0, this._programmaticScrollCount - 1);
+                });
+            });
+        });
     }
 
     /**
@@ -1593,9 +2267,18 @@ class AIAssistantApp {
     forceScrollToBottom() {
         this.userScrolledUp = false;
         this.hideScrollToBottomButton();
-        setTimeout(() => {
-            this.elements.chatMessages.scrollTop = this.elements.chatMessages.scrollHeight;
-        }, 50);
+        if (this._scrollRAF) {
+            cancelAnimationFrame(this._scrollRAF);
+            this._scrollRAF = null;
+        }
+        if (!this._programmaticScrollCount) this._programmaticScrollCount = 0;
+        this._programmaticScrollCount++;
+        this.elements.chatMessages.scrollTop = this.elements.chatMessages.scrollHeight;
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                this._programmaticScrollCount = Math.max(0, this._programmaticScrollCount - 1);
+            });
+        });
     }
 
     /**
@@ -2035,11 +2718,117 @@ class AIAssistantApp {
     }
 
     /**
+     * 隔离版 processThinkContent - 每个并行子任务使用独立的 think 状态
+     * 避免多个并行流共享 this.isInThinkBlock 等全局状态导致内容错位
+     */
+    _processThinkContentIsolated(content, parentElement, thinkState) {
+        let processedContent = '';
+        let remainingContent = content;
+        let newTagBuffer = '';
+
+        while (remainingContent.length > 0) {
+            if (thinkState.isInThinkBlock) {
+                const endThinkIndex = remainingContent.indexOf('</think>');
+                const endThinkingIndex = remainingContent.indexOf('</thinking>');
+
+                let endIndex = -1;
+                let endTagLength = 0;
+
+                if (endThinkIndex !== -1 && (endThinkingIndex === -1 || endThinkIndex < endThinkingIndex)) {
+                    endIndex = endThinkIndex;
+                    endTagLength = '</think>'.length;
+                } else if (endThinkingIndex !== -1) {
+                    endIndex = endThinkingIndex;
+                    endTagLength = '</thinking>'.length;
+                }
+
+                if (endIndex !== -1) {
+                    const finalContent = remainingContent.substring(0, endIndex);
+                    if (finalContent && thinkState.currentThinkElement) {
+                        thinkState.currentThinkElement.appendChild(document.createTextNode(finalContent));
+                    }
+                    // 结束 think 块
+                    thinkState.isInThinkBlock = false;
+                    thinkState.currentThinkBlock = null;
+                    thinkState.currentThinkElement = null;
+
+                    remainingContent = remainingContent.substring(endIndex + endTagLength);
+                    continue;
+                } else {
+                    if (this.mightHavePartialEndTag(remainingContent)) {
+                        newTagBuffer = remainingContent;
+                        break;
+                    }
+                    if (thinkState.currentThinkElement) {
+                        thinkState.currentThinkElement.appendChild(document.createTextNode(remainingContent));
+                    }
+                    break;
+                }
+            } else {
+                const startThinkIndex = remainingContent.indexOf('<think>');
+                const startThinkingIndex = remainingContent.indexOf('<thinking>');
+
+                let startIndex = -1;
+                let startTagLength = 0;
+
+                if (startThinkIndex !== -1 && (startThinkingIndex === -1 || startThinkIndex < startThinkingIndex)) {
+                    startIndex = startThinkIndex;
+                    startTagLength = '<think>'.length;
+                } else if (startThinkingIndex !== -1) {
+                    startIndex = startThinkingIndex;
+                    startTagLength = '<thinking>'.length;
+                }
+
+                if (startIndex !== -1) {
+                    const beforeThink = remainingContent.substring(0, startIndex);
+                    processedContent += beforeThink;
+
+                    // 创建新的 think 块（隔离版，不修改全局 this 状态）
+                    const thinkId = 'think_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                    const thinkBlock = document.createElement('div');
+                    thinkBlock.className = 'think-block';
+                    thinkBlock.innerHTML = `
+                        <div class="think-header" onclick="toggleThinkContent('${thinkId}')">
+                            <i class="fas fa-brain think-icon"></i>
+                            <span class="think-label">Thinking...</span>
+                            <i class="fas fa-chevron-up think-toggle" id="toggle_${thinkId}"></i>
+                        </div>
+                        <div class="think-content" id="content_${thinkId}" style="display: block;">
+                            <div class="think-text" id="text_${thinkId}"></div>
+                        </div>
+                    `;
+                    parentElement.appendChild(thinkBlock);
+
+                    thinkState.isInThinkBlock = true;
+                    thinkState.currentThinkBlock = thinkBlock;
+                    thinkState.currentThinkElement = thinkBlock.querySelector(`#text_${thinkId}`);
+
+                    remainingContent = remainingContent.substring(startIndex + startTagLength);
+                    continue;
+                } else {
+                    if (this.mightHavePartialStartTag(remainingContent)) {
+                        const partialTagIndex = this.findPartialTagStart(remainingContent);
+                        processedContent += remainingContent.substring(0, partialTagIndex);
+                        newTagBuffer = remainingContent.substring(partialTagIndex);
+                        break;
+                    }
+                    processedContent += remainingContent;
+                    break;
+                }
+            }
+        }
+
+        return {
+            processedContent: processedContent,
+            tagBuffer: newTagBuffer
+        };
+    }
+
+    /**
      * 检查是否可能有不完整的开始标签
      */
     mightHavePartialStartTag(content) {
-        // 检查是否以 < 或 <t 或 <th 等开头可能是 <think> 或 <thinking> 的前缀
-        const patterns = ['<', '<t', '<th', '<thi', '<thin', '<think', '<thinking'];
+        const patterns = ['<', '<t', '<th', '<thi', '<thin', '<think', '<thinki', '<thinkin', '<thinking'];
         for (const pattern of patterns) {
             if (content.endsWith(pattern)) {
                 return true;
@@ -2054,7 +2843,7 @@ class AIAssistantApp {
     mightHavePartialEndTag(content) {
         // 检查是否以 < 或 </ 或 </t 等结尾，可能是 </think> 或 </thinking> 的前缀
         // 也要考虑换行符的情况，如 \n</think
-        const patterns = ['<', '</', '</t', '</th', '</thi', '</thin', '</think', '</thinking'];
+        const patterns = ['</', '</t', '</th', '</thi', '</thin', '</think', '</thinki', '</thinkin', '</thinking'];
         
         // 检查直接以模式结尾的情况
         for (const pattern of patterns) {
@@ -2222,43 +3011,23 @@ class AIAssistantApp {
     /**
      * 打开文件列表侧边栏
      */
-    openFileList() {
-        console.log('📂 打开文件列表，session_id:', this.sessionId);
-
-        if (!this.sessionId) {
-            alert('当前没有活动的会话，请先发送消息');
-            return;
+    toggleSidebar() {
+        if (this.elements.sidebar.classList.contains('open')) {
+            this.elements.sidebar.classList.remove('open');
+        } else {
+            this.elements.sidebar.classList.add('open');
         }
-
-        // 打开侧边栏
-        this.elements.sidebar.classList.add('open');
-
-        // 显示文件列表视图
-        this.showFileListView();
-
-        // 加载文件列表
-        this.loadFileList();
     }
 
     /**
-     * 显示文件列表视图
+     * 显示文件列表视图 (legacy)
      */
-    showFileListView() {
-        document.getElementById('fileListView').style.display = 'block';
-        document.getElementById('fileContentView').style.display = 'none';
-        document.getElementById('backButton').style.display = 'none';
-        document.getElementById('sidebarTitle').textContent = '文件列表';
-    }
+    showFileListView() {}
 
     /**
-     * 显示文件内容视图
+     * 显示文件内容视图 (legacy)
      */
-    showFileContentView(fileName) {
-        document.getElementById('fileListView').style.display = 'none';
-        document.getElementById('fileContentView').style.display = 'block';
-        document.getElementById('backButton').style.display = 'flex';
-        document.getElementById('sidebarTitle').textContent = fileName;
-    }
+    showFileContentView(fileName) {}
 
     /**
      * 加载文件列表
@@ -2357,7 +3126,7 @@ class AIAssistantApp {
         document.getElementById('fileMetadataModified').textContent = this.formatTime(modified);
 
         // 清空并显示加载状态
-        this.elements.fileContent.textContent = '加载中...';
+        this.elements.fileContent.innerHTML = '<p style="color:#64748b;">加载中...</p>';
 
         try {
             const response = await fetch(`${this.apiBaseUrl}/file/read?filepath=${encodeURIComponent(filePath)}`);
@@ -2370,7 +3139,7 @@ class AIAssistantApp {
             const data = await response.json();
 
             if (data.status === 'success' && data.content) {
-                this.elements.fileContent.textContent = data.content;
+                this.elements.fileContent.innerHTML = this.renderMarkdown(data.content);
                 console.log('📄 文件内容加载成功，大小:', data.size);
             } else {
                 throw new Error('Invalid response format');
@@ -2418,6 +3187,42 @@ class AIAssistantApp {
     }
 
     /**
+     * 下载文件
+     */
+    downloadFile() {
+        // legacy, unused
+    }
+
+    /**
+     * 从计划面板下载生成的文件
+     */
+    downloadPlanFile(filepath, fileName) {
+        const raw = this._planFileContents?.[filepath];
+        if (!raw) {
+            alert('文件内容尚未就绪');
+            return;
+        }
+        const content = this._filterFileContent(raw);
+
+        try {
+            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            console.log('📥 文件下载成功:', fileName);
+        } catch (error) {
+            console.error('📥 文件下载失败:', error);
+            alert('下载失败: ' + error.message);
+        }
+    }
+
+    /**
      * 生成UUID
      */
     generateUUID() {
@@ -2426,6 +3231,445 @@ class AIAssistantApp {
             const v = c === 'x' ? r : (r & 0x3 | 0x8);
             return v.toString(16);
         });
+    }
+
+    /**
+     * 显示侧边栏指定视图（文件/计划）
+     */
+    showSidebarView(viewType) {
+        // 侧边栏现在只有计划视图，直接打开
+        if (this.elements.sidebar) {
+            this.elements.sidebar.classList.add('open');
+        }
+    }
+
+    /**
+     * 从 Markdown 字符串解析计划
+     * 格式：# 标题\n## 组名\n- [√] 步骤描述\n...
+     */
+    parsePlanFromMarkdown(markdown) {
+        const lines = markdown.split('\n');
+        const plan = {
+            title: '未加载计划',
+            groups: [],
+            totalSteps: 0,
+            completedSteps: 0
+        };
+
+        let currentGroup = null;
+        let stepIndex = 0;
+
+        for (const line of lines) {
+            // 提取标题
+            if (line.startsWith('# ')) {
+                plan.title = line.substring(2).trim();
+            }
+            // 提取组名
+            else if (line.startsWith('## ')) {
+                if (currentGroup) {
+                    plan.groups.push(currentGroup);
+                }
+                currentGroup = {
+                    name: line.substring(3).trim(),
+                    steps: []
+                };
+            }
+            // 提取步骤（如 "- [√] 描述"）
+            else if (line.startsWith('- ') && currentGroup) {
+                const match = line.match(/^- \[([\[\]√!x ]*)\] (.*)/);
+                if (match) {
+                    const statusSymbol = match[1];
+                    let stepText = match[2].trim();
+                    let stepType = '';
+
+                    // 提取【AGENT_TYPE】标签
+                    const typeMatch = stepText.match(/^【([^】]+)】\s*(.*)/);
+                    if (typeMatch) {
+                        stepType = typeMatch[1];
+                        stepText = typeMatch[2];
+                    }
+
+                    let status = 'not_started';
+                    if (statusSymbol === '√') status = 'completed';
+                    else if (statusSymbol === 'x') status = 'in_progress';
+                    else if (statusSymbol === '!') status = 'blocked';
+
+                    currentGroup.steps.push({
+                        index: stepIndex,
+                        text: stepText,
+                        type: stepType,
+                        status: status,
+                        symbol: `[${statusSymbol}]`
+                    });
+
+                    plan.totalSteps++;
+                    if (status === 'completed') plan.completedSteps++;
+                    stepIndex++;
+                }
+            }
+        }
+
+        if (currentGroup) {
+            plan.groups.push(currentGroup);
+        }
+
+        return plan;
+    }
+
+    /**
+     * 渲染计划面板
+     */
+    renderPlanPanel() {
+        if (!this.activePlan) return;
+
+        const planTitle = document.getElementById('planTitle');
+        const planProgress = document.getElementById('planProgress');
+        const planStepsContainer = document.getElementById('planSteps');
+
+        if (!planTitle || !planProgress || !planStepsContainer) {
+            console.warn('计划面板 DOM 元素不完整');
+            return;
+        }
+
+        // 在清空前，保存每个步骤下已挂载的文件元素
+        const savedFiles = {}; // stepIndex → [fileItem DOM elements]
+        if (this.planStepElements) {
+            for (const [stepIndex, stepEl] of Object.entries(this.planStepElements)) {
+                const filesContainer = stepEl.querySelector('.step-files');
+                if (filesContainer && filesContainer.children.length > 0) {
+                    savedFiles[stepIndex] = Array.from(filesContainer.children);
+                }
+            }
+        }
+
+        planTitle.textContent = this.activePlan.title;
+        planProgress.textContent = `${this.activePlan.completedSteps}/${this.activePlan.totalSteps} 完成`;
+
+        planStepsContainer.innerHTML = '';
+        this.planStepElements = {};
+
+        for (const group of this.activePlan.groups) {
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'plan-group';
+
+            const groupHeader = document.createElement('div');
+            groupHeader.className = 'plan-group-header';
+
+            const chevron = document.createElement('i');
+            chevron.className = 'fas fa-chevron-right plan-group-chevron';
+
+            const groupTitle = document.createElement('h4');
+            groupTitle.textContent = group.name;
+
+            // 计算组内完成进度
+            const groupCompleted = group.steps.filter(s => s.status === 'completed').length;
+            const groupTotal = group.steps.length;
+            const groupProgress = document.createElement('span');
+            groupProgress.className = 'plan-group-progress';
+            groupProgress.textContent = `${groupCompleted}/${groupTotal}`;
+
+            groupHeader.appendChild(chevron);
+            groupHeader.appendChild(groupTitle);
+            groupHeader.appendChild(groupProgress);
+            groupDiv.appendChild(groupHeader);
+
+            const stepsList = document.createElement('div');
+            stepsList.className = 'plan-steps-list';
+            stepsList.style.display = 'none';
+
+            groupHeader.onclick = () => {
+                const isHidden = stepsList.style.display === 'none';
+                stepsList.style.display = isHidden ? '' : 'none';
+                chevron.classList.toggle('expanded', isHidden);
+            };
+
+            for (const step of group.steps) {
+                const stepDiv = document.createElement('div');
+                stepDiv.className = `plan-step ${step.status}`;
+                stepDiv.dataset.stepIndex = step.index;
+
+                const statusSpan = document.createElement('span');
+                statusSpan.className = `step-status ${step.status}`;
+                statusSpan.innerHTML = this._stepStatusIcon(step.status);
+
+                const textSpan = document.createElement('span');
+                textSpan.className = `step-text ${step.status}`;
+                textSpan.textContent = step.text;
+
+                stepDiv.appendChild(statusSpan);
+                if (step.type) {
+                    const typeBadge = document.createElement('span');
+                    typeBadge.className = 'step-type-badge';
+                    typeBadge.textContent = step.type;
+                    stepDiv.appendChild(typeBadge);
+                }
+                stepDiv.appendChild(textSpan);
+
+                // 恢复该步骤之前挂载的文件元素
+                if (savedFiles[step.index]) {
+                    const filesContainer = document.createElement('div');
+                    filesContainer.className = 'step-files';
+                    savedFiles[step.index].forEach(fileEl => filesContainer.appendChild(fileEl));
+                    stepDiv.appendChild(filesContainer);
+                }
+
+                stepsList.appendChild(stepDiv);
+
+                this.planStepElements[step.index] = stepDiv;
+            }
+
+            groupDiv.appendChild(stepsList);
+            planStepsContainer.appendChild(groupDiv);
+        }
+
+        console.log('📋 计划面板已渲染:', this.activePlan);
+    }
+
+    /**
+     * 更新计划面板（只更新已变化的步骤）
+     */
+    updatePlanPanel() {
+        if (!this.activePlan) return;
+
+        const planProgress = document.getElementById('planProgress');
+        if (planProgress) {
+            planProgress.textContent = `${this.activePlan.completedSteps}/${this.activePlan.totalSteps} 完成`;
+        }
+
+        // 更新所有步骤的视觉状态
+        for (const [stepIndex, stepEl] of Object.entries(this.planStepElements)) {
+            const step = this._findStepByIndex(parseInt(stepIndex));
+            if (step) {
+                stepEl.className = `plan-step ${step.status}`;
+
+                const statusSpan = stepEl.querySelector('.step-status');
+                if (statusSpan) {
+                    statusSpan.className = `step-status ${step.status}`;
+                    statusSpan.innerHTML = this._stepStatusIcon(step.status);
+                }
+
+                const textSpan = stepEl.querySelector('.step-text');
+                if (textSpan) {
+                    textSpan.className = `step-text ${step.status}`;
+                }
+            }
+        }
+
+        // 更新每个组的进度计数
+        const planStepsContainer = document.getElementById('planSteps');
+        if (planStepsContainer) {
+            this.activePlan.groups.forEach((group, idx) => {
+                const groupDiv = planStepsContainer.children[idx];
+                if (groupDiv) {
+                    const progressEl = groupDiv.querySelector('.plan-group-progress');
+                    if (progressEl) {
+                        const done = group.steps.filter(s => s.status === 'completed').length;
+                        progressEl.textContent = `${done}/${group.steps.length}`;
+                    }
+                }
+            });
+        }
+
+        console.log('📋 计划面板已更新');
+    }
+
+    /**
+     * 根据步骤索引查找步骤对象
+     */
+    _findStepByIndex(index) {
+        for (const group of this.activePlan.groups) {
+            for (const step of group.steps) {
+                if (step.index === index) return step;
+            }
+        }
+        return null;
+    }
+
+    _stepStatusIcon(status) {
+        switch (status) {
+            case 'completed': return '<i class="fas fa-check-circle"></i>';
+            case 'in_progress': return '<i class="fas fa-spinner"></i>';
+            case 'blocked': return '<i class="fas fa-exclamation-circle"></i>';
+            default: return '<i class="far fa-circle"></i>';
+        }
+    }
+
+    /**
+     * 通过 agentName/taskDesc 模糊匹配计划步骤，并标记为 in_progress
+     */
+    _markStepInProgressByMatch(agentName, taskDesc) {
+        if (!this.activePlan) return;
+        let bestMatch = null;
+        let bestScore = 0;
+        for (const group of this.activePlan.groups) {
+            for (const step of group.steps) {
+                if (step.status === 'completed' || step.status === 'in_progress') continue;
+                let score = 0;
+                if (agentName && step.type && agentName.toUpperCase().includes(step.type.toUpperCase())) {
+                    score += 10;
+                }
+                if (taskDesc && step.text) {
+                    const keywords = taskDesc.split(/[\s，、,。]+/).filter(k => k.length > 1);
+                    const matched = keywords.filter(k => step.text.includes(k));
+                    if (matched.length > 0) score += matched.join('').length;
+                }
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMatch = step;
+                }
+            }
+        }
+        if (bestMatch) {
+            bestMatch.status = 'in_progress';
+            const stepEl = this.planStepElements?.[bestMatch.index];
+            if (stepEl) {
+                stepEl.className = `plan-step in_progress`;
+                const statusSpan = stepEl.querySelector('.step-status');
+                if (statusSpan) {
+                    statusSpan.className = 'step-status in_progress';
+                    statusSpan.innerHTML = this._stepStatusIcon('in_progress');
+                }
+            }
+        }
+    }
+
+    /**
+     * 根据 parallelCallId 找到对应的计划步骤 DOM 元素
+     * 通过任务描述与计划步骤文本模糊匹配
+     */
+    _findPlanStepForParallelTask(parallelCallId) {
+        if (!parallelCallId || !this.activePlan) return null;
+
+        // 优先使用预计算的映射
+        const precomputedIndex = this._parallelCallIdToStepIndex?.[parallelCallId];
+        if (precomputedIndex !== undefined && this.planStepElements[precomputedIndex]) {
+            return this.planStepElements[precomputedIndex];
+        }
+
+        // 回退：通过任务描述文本匹配
+        const taskDesc = this._parallelTaskDescMap?.[parallelCallId];
+        if (!taskDesc) return null;
+
+        let bestMatch = null;
+        let bestScore = 0;
+
+        for (const group of this.activePlan.groups) {
+            for (const step of group.steps) {
+                let score = 0;
+                if (taskDesc.includes(step.text) || step.text.includes(taskDesc)) {
+                    score = Math.min(taskDesc.length, step.text.length) * 2;
+                } else {
+                    // 模糊匹配：关键词重叠
+                    const keywords = taskDesc.split(/[\s，、,。]+/).filter(k => k.length > 1);
+                    const matched = keywords.filter(k => step.text.includes(k));
+                    if (matched.length > 0) {
+                        score = matched.join('').length;
+                    }
+                }
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMatch = step;
+                }
+            }
+        }
+
+        if (bestMatch && this.planStepElements[bestMatch.index]) {
+            return this.planStepElements[bestMatch.index];
+        }
+        return null;
+    }
+
+    /**
+     * 找到当前 in_progress 的步骤（兜底：文件挂到正在执行的步骤）
+     */
+    _findInProgressStep() {
+        if (!this.activePlan) return null;
+        for (const group of this.activePlan.groups) {
+            for (const step of group.steps) {
+                if (step.status === 'in_progress' && this.planStepElements[step.index]) {
+                    return this.planStepElements[step.index];
+                }
+            }
+        }
+        return null;
+    }
+
+    _findFirstNotStartedStep() {
+        if (!this.activePlan) return null;
+        for (const group of this.activePlan.groups) {
+            for (const step of group.steps) {
+                if (step.status === 'not_started' && this.planStepElements[step.index]) {
+                    return this.planStepElements[step.index];
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 打开文件预览弹窗（支持查看流式写入内容）
+     */
+    openFilePreview(filepath, fileName) {
+        this._previewFilePath = filepath;
+        this._previewFileName = fileName;
+
+        const overlay = document.getElementById('filePreviewOverlay');
+        const title = document.getElementById('filePreviewTitle');
+        const content = document.getElementById('filePreviewContent');
+        const downloadBtn = document.getElementById('filePreviewDownloadBtn');
+
+        if (!overlay) return;
+
+        title.textContent = fileName;
+        overlay.style.display = 'flex';
+
+        // 重置滚动状态：打开时默认自动跟随，用户手动滚动后停止
+        content._userScrolled = false;
+        if (!content._scrollListenerBound) {
+            content.addEventListener('scroll', () => {
+                const distFromBottom = content.scrollHeight - content.scrollTop - content.clientHeight;
+                // 改进检测逻辑：如果距离底部超过150px，则认为用户在浏览历史内容
+                // 如果距离底部很近（小于30px），则认为用户在看最新内容
+                if (distFromBottom > 150) {
+                    content._userScrolled = true;
+                } else if (distFromBottom <= 30) {
+                    content._userScrolled = false;
+                }
+                // 30-150px之间保持现状，避免频繁切换
+            });
+            content._scrollListenerBound = true;
+        }
+
+        const fileContent = this._planFileContents?.[filepath] || '';
+        if (fileContent) {
+            content.innerHTML = this.renderMarkdown(this._filterFileContent(fileContent));
+            downloadBtn.style.display = 'inline-flex';
+            // 打开预览时总是滚动到顶部，让用户看到完整内容的开头
+            content.scrollTop = 0;
+            content._userScrolled = false;
+        } else {
+            content.innerHTML = '<div class="file-preview-hint"><i class="fas fa-spinner fa-spin"></i> 正在写入...</div>';
+            downloadBtn.style.display = 'none';
+        }
+    }
+
+    /**
+     * 关闭文件预览弹窗
+     */
+    closeFilePreview() {
+        const overlay = document.getElementById('filePreviewOverlay');
+        if (overlay) overlay.style.display = 'none';
+        this._previewFilePath = null;
+        this._previewFileName = null;
+    }
+
+    /**
+     * 从预览弹窗下载文件
+     */
+    downloadPreviewFile() {
+        if (this._previewFilePath && this._previewFileName) {
+            this.downloadPlanFile(this._previewFilePath, this._previewFileName);
+        }
     }
 
     /**
@@ -2466,6 +3710,26 @@ class AIAssistantApp {
         // 关闭侧边栏
         this.elements.sidebar.classList.remove('open');
 
+        // 重置并行任务状态
+        this._currentParallelGroup = null;
+        this._parallelCallIds = null;
+        this._parallelCompleted = 0;
+        this._parallelTotal = 0;
+
+        // 重置计划相关状态
+        this.activePlan = null;
+        this.planStepElements = {};
+        this._planFileContents = {};
+
+        // 重置计划面板
+        const planTitle = document.getElementById('planTitle');
+        const planProgress = document.getElementById('planProgress');
+        const planSteps = document.getElementById('planSteps');
+        if (planTitle) planTitle.textContent = '未加载计划';
+        if (planProgress) planProgress.textContent = '0/0 完成';
+        if (planSteps) planSteps.innerHTML = '';
+        this.closeFilePreview();
+
         // 更新状态
         this.updateStatus('就绪', 'ready');
 
@@ -2480,23 +3744,6 @@ class AIAssistantApp {
 function closeSidebar() {
     document.getElementById('sidebar').classList.remove('open');
 }
-
-// 全局函数：返回文件列表
-function showFileList() {
-    console.log('🔙 返回文件列表');
-
-    // 切换视图
-    document.getElementById('fileListView').style.display = 'block';
-    document.getElementById('fileContentView').style.display = 'none';
-    document.getElementById('backButton').style.display = 'none';
-    document.getElementById('sidebarTitle').textContent = '文件列表';
-
-    console.log('✅ 已返回文件列表视图');
-}
-
-// 初始化应用
-const app = new AIAssistantApp();
-window.app = app;
 
 // 全局思考块切换函数（与测试页面保持一致）
 function toggleThinkContent(thinkId) {
@@ -2520,6 +3767,44 @@ function toggleThinkContent(thinkId) {
 
 // 将函数绑定到全局作用域
 window.toggleThinkContent = toggleThinkContent;
+
+// 全局并行任务折叠/展开函数
+function toggleParallelTask(callId) {
+    const body = document.getElementById(`pbody_${callId}`);
+    const toggle = document.getElementById(`ptoggle_${callId}`);
+    if (body) {
+        const isHidden = body.style.display === 'none';
+        body.style.display = isHidden ? 'block' : 'none';
+        if (toggle) {
+            toggle.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
+        }
+    }
+}
+window.toggleParallelTask = toggleParallelTask;
+
+// ============= 计划相关全局函数 =============
+
+/**
+ * 显示侧边栏指定视图
+ */
+window.showSidebarView = function(viewType) {
+    if (!window.app) return;
+    app.showSidebarView(viewType);
+};
+
+/**
+ * 调试函数：手动触发消息发送
+ */
+window.testSendMessage = function() {
+    console.log('🧪 测试发送消息');
+    if (!window.app) {
+        console.error('❌ app 未初始化');
+        return;
+    }
+    console.log('✅ app 已初始化');
+    console.log('elements:', window.app.elements);
+    window.app.sendMessage();
+};
 
 // 页面加载完成后的初始化
 document.addEventListener('DOMContentLoaded', () => {

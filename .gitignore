@@ -45,6 +45,7 @@ venv.bak/
 logs/
 
 # 环境变量文件
+.claude
 .env
 .env.local
 .env.development.local
@@ -72,3 +73,5 @@ coverage.xml
 .pytest_cache/
 *.pyc
 output/
+test*/
+test*

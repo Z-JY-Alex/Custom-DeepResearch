@@ -4,6 +4,7 @@ Artifact管理器 - 负责工件的创建和显示
 简化版本，只保留核心功能
 """
 import os
+import asyncio
 import hashlib
 import mimetypes
 import json
@@ -48,6 +49,7 @@ class ArtifactManager:
         else:
             self.storage_path = Path(storage_path)
         self.artifacts_content = []
+        self._lock = asyncio.Lock()  # 并发写入安全锁
         
         self._init_storage()
     
@@ -185,14 +187,15 @@ class ArtifactManager:
             file_size=file_size
         )
         
-        self.artifacts_content.append(artifact)
-        
-        # 保存工件到本地存储
-        # 保存工件内容
-        content_path = self.storage_path / "content.md"
+        async with self._lock:
+            self.artifacts_content.append(artifact)
 
-        with open(content_path, 'w', encoding='utf-8') as f:
-            f.write(self.show())
+            # 保存工件到本地存储
+            # 保存工件内容
+            content_path = self.storage_path / "artifacts.md"
+
+            with open(content_path, 'w', encoding='utf-8') as f:
+                f.write(self.show())
 
         
         return artifact

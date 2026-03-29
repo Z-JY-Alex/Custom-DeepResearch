@@ -12,7 +12,7 @@ from datetime import datetime
 
 CURRUENT_TIME = datetime.now()
 
-AGENT_LIST = ["WEB_SEARCH", "CONTENT_ANALYSIS", "TEST_CASE_GENERATE", "CODE_GENERATE", "SUMMARY_REPORT"]
+AGENT_LIST = ["WEB_SEARCH", "CONTENT_ANALYSIS", "TEST_CASE_GENERATE", "CODE_GENERATE", "SUMMARY_REPORT", "DATA_ANALYSIS"]
 
 _SUB_AGENT_EXECUTE_DESCRIPTION = """智能选择并调度最合适的子代理来执行特定任务。
 此工具会根据任务的类型、复杂度、领域特征和执行要求，自动匹配最适合的专业子代理。
@@ -25,6 +25,7 @@ _AGENT_NAME_DESCRIPTION = """
 - TEST_CASE_GENERATE: 测试用例设计和生成专家，**所有涉及测试用例的任务都必须使用此代理**
 - CODE_GENERATE: 代码编写和技术实现专家
 - SUMMARY_REPORT: 信息汇总、分析总结与报告生成专家，**所有涉及数据汇总、结果分析、报告撰写、复盘总结的任务都必须使用此代理**
+- DATA_ANALYSIS: 数据分析、数据可视化专家，**所有涉及数据分析、数据可视化、数据报告生成的任务都必须使用此代理**
 
 选择原则：
 - 根据任务的核心需求选择最匹配的代理
@@ -51,6 +52,9 @@ _AGENT_NAME_DESCRIPTION = """
 - "实现一个LRU缓存算法" → CODE_GENERATE
 - "汇总本次迭代的测试执行结果" → SUMMARY_REPORT
 - "生成项目月度进展报告" → SUMMARY_REPORT
+- "分析xxx数据并生成可视化图表" → DATA_ANALYSIS
+- "分析xxx数据并生成报告" → DATA_ANALYSIS
+- "分析xxx数据并生成报告" → DATA_ANALYSIS
 """
 
 _AGENT_TASK_DESCRIPTION = """
@@ -125,6 +129,17 @@ CODE_GENERATE 任务描述应包含：
     - 完整的响应出参（包括响应状态码、响应头、响应体等）
     - 错误情况描述（错误类型、错误消息、堆栈信息等）
     - 失败原因分析
+
+DATA_ANALYSIS 任务描述应包含：
+- 需要分析和可视化的数据类型（如销售额、用户增长、访问量等）
+- 期望生成的图片类型（如折线图、柱状图、饼图、散点图、热力图等）
+- 需要比较的时间区间、分组字段或类别（如按月份、地区、用户类型等）
+- 每张图表需要展示的核心指标、趋势或对比关系
+- 图表标题、坐标轴名称、图例等可视化细节要求
+- 图片输出格式（如 PNG、JPG、SVG）及保存路径
+- 是否需要在图片中标注关键数值或特殊说明
+- 结果如何汇总展示（多图合并、图片+数据简述）
+
 
 **特殊要求：**
 - 对于自动化测试相关的代码生成任务：
@@ -274,6 +289,7 @@ class SubAgentExecute(BaseTool):
     包括但不限于数据处理、内容生成、分析计算、自动化操作等。"""
     name: str = "sub_agent_run"
     description: str = _SUB_AGENT_EXECUTE_DESCRIPTION
+    parallel: bool = True  # 支持并行执行多个子代理
     session_id: Optional[str] = Field(default=None, description="会话ID")
     parameters: dict = {
         "type": "object",
@@ -286,12 +302,8 @@ class SubAgentExecute(BaseTool):
             "task": {
                 "type": "string",
                 "description": _AGENT_TASK_DESCRIPTION.format(CURRUENT_TIME=CURRUENT_TIME, session_id=session_id),
-            },
-            # "context": {
-            #     "type": "string",
-            #     "description": "任务执行的上下文信息，可选参数，提供额外的背景信息帮助子代理更好地理解任务",
-            #     "default": "",
-            # },
+            }
+
         },
         "required": ["agent_name", "task"],
     }

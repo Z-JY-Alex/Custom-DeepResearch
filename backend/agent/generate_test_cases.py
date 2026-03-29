@@ -7,7 +7,7 @@ import asyncio
 import json
 from datetime import datetime
 
-from backend.agent import BaseAgent
+from backend.agent.general_agent.base import BaseAgent
 from backend.agent.schema import AgentState
 from backend.llm.base import BaseLLM, Message, MessageRole, LLMConfig
 from backend.prompts.test_cases import TEST_CASES_SYSTEM_PROMPT, TEST_CASES_USER_PROMPT
@@ -81,7 +81,7 @@ class TestCasesGeneratorAgent(BaseAgent):
         messages = [
             Message(
                 role=MessageRole.ASSISTANT,
-                content=self.memory.states["api_docs"],
+                content=self.memory.states.get("api_docs", ""),
                 timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 metadata={"current_round": 0}
             ),

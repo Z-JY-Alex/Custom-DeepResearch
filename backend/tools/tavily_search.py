@@ -194,7 +194,8 @@ class TavilySearch(BaseTool):
     async def execute(self, **kwargs):
         """执行 Tavily 搜索"""
         try:
-            client = AsyncTavilyClient("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")
+            from backend import config
+            client = AsyncTavilyClient(config.get_tavily_api_key())
 
             if "include_images" not in kwargs:
                 kwargs["include_images"] = True

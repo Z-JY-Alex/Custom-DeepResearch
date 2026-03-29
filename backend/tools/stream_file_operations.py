@@ -4,6 +4,8 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 import difflib
 import re
 
+import re
+
 import aiofiles
 from backend.tools.base import BaseTool
 
@@ -19,7 +21,7 @@ class StreamFileOperationTool(BaseTool):
 支持的操作模式：
 - write: 流式写入新文件（覆盖模式）
 - append: 流式追加到文件末尾
-- modify: 流式修改文件指定行范围的内容（支持智能缩进和去重）
+- modify: 通过字符串匹配替换文件中的指定内容（支持智能缩进）
 - insert: 流式在文件指定位置插入内容（支持智能缩进）
 
 适合用于：
@@ -30,15 +32,9 @@ class StreamFileOperationTool(BaseTool):
 - 流式替换或插入内容
 
 智能缩进功能（auto_indent=True时）：
-- modify模式：自动检测被替换行的缩进级别，并将新内容对齐到相同缩进
+- modify模式：自动检测被匹配内容首行的缩进级别，并将新内容对齐到相同缩进
 - insert模式：自动检测插入位置所在行的缩进级别，并将新内容对齐到相同缩进
 - 保持代码格式的一致性，特别适用于修改Python、JavaScript等对缩进敏感的代码
-
-智能去重功能（auto_deduplicate=True时）：
-- modify模式：自动检测新内容末尾是否包含原始内容的重复部分
-- 比较时会忽略缩进差异，只比较实际内容
-- 如果检测到重复，自动移除重复部分，防止内容重复写入
-- 特别适用于LLM可能重复生成部分内容的场景
 
 文件差异显示（show_diff=True时）：
 - modify和insert操作完成后自动显示修改前后的差异对比
@@ -64,17 +60,21 @@ class StreamFileOperationTool(BaseTool):
             "operation_mode": {
                 "type": "string",
                 "enum": ["write", "append", "modify", "insert"],
-                "description": "操作模式：'write'覆盖写入，'append'追加到末尾，'modify'修改指定范围，'insert'在指定位置插入",
+                "description": "操作模式：'write'覆盖写入，'append'追加到末尾，'modify'字符串匹配替换，'insert'在指定位置插入",
                 "default": "write"
+            },
+            "match_content": {
+                "type": "string",
+                "description": "要匹配替换的原始内容字符串 - 仅用于modify操作，工具会在文件中查找此字符串并替换为新生成的内容"
             },
             "start_line": {
                 "type": "integer",
-                "description": "开始行号（从1开始）- 用于modify和insert操作",
+                "description": "开始行号（从1开始）- 仅用于insert操作",
                 "minimum": 1
             },
             "end_line": {
                 "type": "integer",
-                "description": "结束行号（包含）- 仅用于modify操作，如果不指定则等于start_line",
+                "description": "结束行号（包含）- 已废弃，modify操作现使用match_content进行字符串匹配",
                 "minimum": 1
             },
             "encoding": {
@@ -94,12 +94,7 @@ class StreamFileOperationTool(BaseTool):
             },
             "auto_indent": {
                 "type": "boolean",
-                "description": "是否自动处理缩进（用于modify和insert操作，保持与原始行相同的缩进级别）",
-                "default": True
-            },
-            "auto_deduplicate": {
-                "type": "boolean",
-                "description": "是否自动去除新内容末尾与原始内容重复的部分（用于modify操作，防止LLM重复生成内容）",
+                "description": "是否自动处理缩进（用于modify和insert操作，保持与原始内容相同的缩进级别）",
                 "default": True
             },
             "show_diff": {
@@ -137,6 +132,7 @@ class StreamFileOperationTool(BaseTool):
 
         # 修改模式状态
         self._original_lines: List[str] = []
+        self._match_content: str = ""  # 用于modify模式的字符串匹配
         self._start_line: Optional[int] = None
         self._end_line: Optional[int] = None
         self._collected_content: List[str] = []
@@ -145,22 +141,25 @@ class StreamFileOperationTool(BaseTool):
 
         # 新增功能状态
         self._auto_indent: bool = True
-        self._auto_deduplicate: bool = True
         self._show_diff: bool = True
         self._diff_format: str = "unified"
         self._original_content: str = ""  # 保存原始文件内容用于diff
+
+        # think 标签流式过滤状态
+        self._in_think_block: bool = False
+        self._think_tag_buffer: str = ""  # 缓冲可能不完整的标签
 
     async def execute(self, **kwargs) -> AsyncGenerator[Dict[str, Any], None]:
         """执行流式文件操作"""
         filepath = kwargs.get("filepath")
         operation_mode = kwargs.get("operation_mode", "write")
+        match_content = kwargs.get("match_content")
         start_line = kwargs.get("start_line")
         end_line = kwargs.get("end_line")
         encoding = kwargs.get("encoding", "utf-8")
         backup = kwargs.get("backup", True)
         create_dirs = kwargs.get("create_dirs", True)
         auto_indent = kwargs.get("auto_indent", True)
-        auto_deduplicate = kwargs.get("auto_deduplicate", True)
         show_diff = kwargs.get("show_diff", True)
         diff_format = kwargs.get("diff_format", "unified")
         status = kwargs.get("status", "start")
@@ -180,10 +179,10 @@ class StreamFileOperationTool(BaseTool):
                 elif operation_mode == "append":
                     yield await self._init_append_mode(full_path, encoding, create_dirs)
                 elif operation_mode == "modify":
-                    if not start_line:
-                        yield "✗ modify操作需要指定start_line"
+                    if not match_content:
+                        yield "✗ modify操作需要指定match_content（要匹配替换的原始内容）"
                         return
-                    yield await self._init_modify_mode(full_path, start_line, end_line, encoding, backup)
+                    yield await self._init_modify_mode(full_path, match_content, encoding, backup)
                 elif operation_mode == "insert":
                     if not start_line:
                         yield "✗ insert操作需要指定start_line"
@@ -199,7 +198,6 @@ class StreamFileOperationTool(BaseTool):
                 self._filepath = full_path
                 self._encoding = encoding
                 self._auto_indent = auto_indent
-                self._auto_deduplicate = auto_deduplicate
                 self._show_diff = show_diff
                 self._diff_format = diff_format
 
@@ -249,9 +247,9 @@ class StreamFileOperationTool(BaseTool):
 
         return f"✓ 追加模式已准备就绪: {full_path.name} (追加到末尾)"
 
-    async def _init_modify_mode(self, full_path: Path, start_line: int, end_line: Optional[int],
+    async def _init_modify_mode(self, full_path: Path, match_content: str,
                               encoding: str, backup: bool) -> str:
-        """初始化修改模式"""
+        """初始化修改模式（基于字符串匹配）"""
         if not full_path.exists():
             return f"✗ 文件不存在: {full_path}"
 
@@ -262,18 +260,31 @@ class StreamFileOperationTool(BaseTool):
         # 保存原始内容用于diff
         self._original_content = content
 
-        self._original_lines = content.splitlines()
-        original_line_count = len(self._original_lines)
+        # 检查match_content是否存在于文件中
+        match_count = content.count(match_content)
+        if match_count == 0:
+            # 尝试忽略首尾空白进行模糊匹配
+            trimmed_match = match_content.strip()
+            if trimmed_match and trimmed_match in content:
+                match_content = trimmed_match
+                match_count = content.count(match_content)
+            else:
+                # 尝试按行匹配（忽略每行的缩进差异）
+                match_lines = match_content.splitlines()
+                content_lines = content.splitlines()
+                found = self._fuzzy_find_match(match_lines, content_lines)
+                if found is not None:
+                    start_idx, end_idx = found
+                    # 用实际文件中的内容替换match_content
+                    match_content = '\n'.join(content_lines[start_idx:end_idx])
+                    match_count = 1
+                else:
+                    preview = match_content[:100] + "..." if len(match_content) > 100 else match_content
+                    return f"✗ 在文件中未找到匹配内容: {preview}"
 
-        # 验证行号范围
-        if start_line < 1 or start_line > original_line_count:
-            return f"✗ start_line超出范围: {start_line}（文件共{original_line_count}行）"
-
-        if end_line is None:
-            end_line = start_line
-
-        if end_line < start_line or end_line > original_line_count:
-            return f"✗ end_line无效: {end_line}（应在{start_line}-{original_line_count}之间）"
+        if match_count > 1:
+            preview = match_content[:100] + "..." if len(match_content) > 100 else match_content
+            return f"✗ 匹配内容在文件中出现了{match_count}次，请提供更精确的匹配内容以避免歧义: {preview}"
 
         # 创建备份
         if backup and content:
@@ -284,16 +295,12 @@ class StreamFileOperationTool(BaseTool):
             self._backup_path = backup_path
 
         # 设置状态
-        self._start_line = start_line
-        self._end_line = end_line
+        self._match_content = match_content
         self._collected_content = []
 
-        if start_line == end_line:
-            desc = f"替换第{start_line}行"
-        else:
-            desc = f"替换第{start_line}-{end_line}行"
-
-        return f"✓ 修改模式已准备就绪: {full_path.name} ({desc})"
+        preview = match_content[:50] + "..." if len(match_content) > 50 else match_content
+        match_line_count = len(match_content.splitlines())
+        return f"✓ 修改模式已准备就绪: {full_path.name} (匹配{match_line_count}行内容)"
 
     async def _init_insert_mode(self, full_path: Path, start_line: int, encoding: str, backup: bool) -> str:
         """初始化插入模式"""
@@ -330,13 +337,23 @@ class StreamFileOperationTool(BaseTool):
     
     async def write_chunk(self, chunk: str) -> Any:
         """
-        处理内容块（由框架调用）
+        处理内容块（由框架调用），自动过滤 <think>/<thinking> 标签内容
         """
         if not self._is_active:
             return "文件操作未激活"
-        
+
         try:
             chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
+
+            # 过滤 think/thinking 标签及其内容
+            chunk_content = self._filter_think_content(chunk_content)
+
+            # 过滤 agent 进度标记行（非文件内容）
+            chunk_content = self._filter_progress_lines(chunk_content)
+
+            # 过滤后可能为空
+            if not chunk_content:
+                return self._chunk_count
             
             if self._operation_mode in ["write", "append"]:
                 # 直接写入模式
@@ -357,7 +374,98 @@ class StreamFileOperationTool(BaseTool):
         except Exception as e:
             await self._handle_failure()
             return f"ERROR: {str(e)}"
-    
+
+    def _filter_think_content(self, text: str) -> str:
+        """
+        流式过滤 <think>/<thinking> 标签及其内容。
+        维护 _in_think_block 和 _think_tag_buffer 状态以处理跨 chunk 的标签。
+        """
+        # 将上次缓冲的不完整标签拼接到当前文本前面
+        if self._think_tag_buffer:
+            text = self._think_tag_buffer + text
+            self._think_tag_buffer = ""
+
+        output = []
+        i = 0
+        while i < len(text):
+            if self._in_think_block:
+                # 在 think 块内，寻找结束标签
+                end_idx_think = text.find('</think>', i)
+                end_idx_thinking = text.find('</thinking>', i)
+
+                # 找最近的结束标签
+                end_idx = -1
+                end_tag_len = 0
+                if end_idx_think >= 0 and (end_idx_thinking < 0 or end_idx_think <= end_idx_thinking):
+                    end_idx = end_idx_think
+                    end_tag_len = len('</think>')
+                elif end_idx_thinking >= 0:
+                    end_idx = end_idx_thinking
+                    end_tag_len = len('</thinking>')
+
+                if end_idx >= 0:
+                    # 找到结束标签，跳过 think 内容
+                    i = end_idx + end_tag_len
+                    self._in_think_block = False
+                else:
+                    # 没找到结束标签，可能在 chunk 末尾被截断
+                    # 检查末尾是否有不完整的 </think 或 </thinking
+                    tail = text[max(i, len(text) - 12):]
+                    for partial in ['</thinking', '</thinkin', '</thinki', '</think', '</thin', '</thi', '</th', '</t', '</']:
+                        if tail.endswith(partial):
+                            self._think_tag_buffer = partial
+                            break
+                    # 整段都在 think 块内，丢弃
+                    i = len(text)
+            else:
+                # 不在 think 块内，寻找开始标签
+                start_idx_think = text.find('<think>', i)
+                start_idx_thinking = text.find('<thinking>', i)
+
+                # 找最近的开始标签
+                start_idx = -1
+                start_tag_len = 0
+                if start_idx_think >= 0 and (start_idx_thinking < 0 or start_idx_think <= start_idx_thinking):
+                    start_idx = start_idx_think
+                    start_tag_len = len('<think>')
+                elif start_idx_thinking >= 0:
+                    start_idx = start_idx_thinking
+                    start_tag_len = len('<thinking>')
+
+                if start_idx >= 0:
+                    # 输出 think 标签前的内容
+                    output.append(text[i:start_idx])
+                    i = start_idx + start_tag_len
+                    self._in_think_block = True
+                else:
+                    # 没找到开始标签，检查末尾是否有不完整的 <think 或 <thinking
+                    tail = text[max(i, len(text) - 11):]
+                    buffered = False
+                    for partial in ['<thinking', '<thinkin', '<thinki', '<think', '<thin', '<thi', '<th', '<t']:
+                        if tail.endswith(partial):
+                            output.append(text[i:len(text) - len(partial)])
+                            self._think_tag_buffer = partial
+                            buffered = True
+                            break
+                    if not buffered:
+                        output.append(text[i:])
+                    i = len(text)
+
+        return ''.join(output)
+
+    # 匹配 agent 进度标记行的正则（编译一次复用）
+    _PROGRESS_LINE_RE = re.compile(
+        r'^[\s\-]*(?:当前开始搜索[：:]|已完成[搜索]*[：:]|---\s*已完成[搜索]*[：:]|正在搜索[：:]|开始搜索[：:]|搜索完成[：:]|开始分析[：:]|分析完成[：:]|当前开始分析[：:]).*$',
+        re.MULTILINE
+    )
+
+    def _filter_progress_lines(self, text: str) -> str:
+        """过滤 agent 输出的进度标记行，这些不是文件内容"""
+        result = self._PROGRESS_LINE_RE.sub('', text)
+        # 清理多余空行（进度行移除后可能留下连续空行）
+        result = re.sub(r'\n{3,}', '\n\n', result)
+        return result
+
     async def _finalize_operation(self) -> str:
         """完成文件操作"""
         try:
@@ -396,81 +504,35 @@ class StreamFileOperationTool(BaseTool):
             await self._cleanup()
     
     async def _apply_modify(self) -> str:
-        """应用修改操作"""
+        """应用修改操作（基于字符串匹配替换）"""
         new_content = ''.join(self._collected_content)
-        new_lines = new_content.splitlines() if new_content.strip() else []
 
-        # 获取被替换的原始行内容
-        start_idx = self._start_line - 1
-        end_idx = self._end_line
-        original_replaced_lines = self._original_lines[start_idx:end_idx]
+        # 智能缩进处理：检测匹配内容首行的缩进，应用到新内容
+        if self._auto_indent and new_content.strip():
+            match_first_line = self._match_content.split('\n')[0]
+            base_indent = self._detect_indent(match_first_line)
 
-        # 内容验证和警告
-        warnings = []
-        expected_lines = end_idx - start_idx
-        actual_lines = len(new_lines)
-
-        # 检查新内容行数是否与预期差异过大
-        if actual_lines < expected_lines * 0.5:
-            warnings.append(f"新内容行数({actual_lines})明显少于被替换行数({expected_lines})，请确认是否正确")
-        elif actual_lines > expected_lines * 2:
-            warnings.append(f"新内容行数({actual_lines})明显多于被替换行数({expected_lines})，请确认是否正确")
-
-        # 智能去重：检测新内容末尾是否包含原始内容的重复
-        # 不仅检查被替换的行，还要检查替换范围之后的行（防止LLM生成超出范围的重复）
-        removed_duplicates = 0
-        if self._auto_deduplicate:
-            # 扩展检查范围：包括被替换的行和之后的一些行
-            extended_check_lines = self._original_lines[start_idx:]  # 从替换开始位置到文件末尾
-            new_lines, removed_duplicates = self._remove_duplicate_suffix(new_lines, extended_check_lines)
-
-        # 再次检查去重后的行数
-        if removed_duplicates > 0:
-            actual_lines_after_dedup = len(new_lines)
-            if actual_lines_after_dedup == 0:
-                warnings.append("⚠️  去重后内容为空，可能LLM仅重复生成了原内容")
-
-        # 智能缩进处理
-        if self._auto_indent and self._start_line > 0 and new_lines:
-            # 获取原始行的缩进
-            original_line = self._original_lines[self._start_line - 1]
-            base_indent = self._detect_indent(original_line)
-
-            # 应用缩进到新内容
-            if base_indent and new_lines:
+            if base_indent:
+                new_lines = new_content.splitlines()
                 new_lines = self._apply_indent_to_lines(new_lines, base_indent)
+                new_content = '\n'.join(new_lines)
 
-        modified_lines = self._original_lines.copy()
+        # 执行字符串替换（仅替换第一个匹配）
+        final_content = self._original_content.replace(self._match_content, new_content, 1)
 
-        # 替换指定行范围
-        modified_lines[start_idx:end_idx] = new_lines
-
-        # 写入修改后的内容
-        final_content = '\n'.join(modified_lines)
+        # 确保文件以换行符结尾
         if final_content and not final_content.endswith('\n'):
             final_content += '\n'
 
+        # 写入修改后的内容
         async with aiofiles.open(self._filepath, 'w', encoding=self._encoding) as f:
             await f.write(final_content)
 
         # 生成描述
-        if self._start_line == self._end_line:
-            desc = f"替换第{self._start_line}行"
-        else:
-            desc = f"替换第{self._start_line}-{self._end_line}行"
-
-        result = f"{desc}，文件已更新"
-
-        # 添加统计信息
-        result += f"\n📊 原内容: {expected_lines}行 → 新内容: {len(new_lines)}行"
-
-        # 如果检测到并移除了重复内容，添加提示
-        if removed_duplicates > 0:
-            result += f"\n⚠️  检测到新内容末尾有{removed_duplicates}行与原内容重复，已自动去重"
-
-        # 添加警告信息
-        if warnings:
-            result += "\n\n⚠️  警告:\n" + "\n".join(f"  - {w}" for w in warnings)
+        match_line_count = len(self._match_content.splitlines())
+        new_line_count = len(new_content.splitlines()) if new_content.strip() else 0
+        result = f"字符串匹配替换完成，文件已更新"
+        result += f"\n📊 原内容: {match_line_count}行 → 新内容: {new_line_count}行"
 
         # 生成并显示差异
         if self._show_diff:
@@ -525,64 +587,36 @@ class StreamFileOperationTool(BaseTool):
 
         return result
 
-    def _remove_duplicate_suffix(self, new_lines: List[str], original_lines: List[str]) -> tuple[List[str], int]:
+    def _fuzzy_find_match(self, match_lines: List[str], content_lines: List[str]) -> Optional[tuple]:
         """
-        检测并移除新内容末尾与原始内容重复的部分
+        在文件内容中模糊查找匹配的行（忽略缩进差异）
 
         Args:
-            new_lines: LLM生成的新行内容
-            original_lines: 被替换的原始行内容
+            match_lines: 要匹配的行列表
+            content_lines: 文件内容的行列表
 
         Returns:
-            (去重后的新行列表, 移除的重复行数)
+            匹配到的 (start_idx, end_idx) 或 None
         """
-        if not new_lines or not original_lines:
-            return new_lines, 0
+        if not match_lines or not content_lines:
+            return None
 
-        # 从新内容末尾开始，逐步增加匹配长度，寻找最长的重复序列
-        max_duplicate_len = 0
-        max_check_len = min(len(new_lines), len(original_lines))
+        match_len = len(match_lines)
+        stripped_match = [line.strip() for line in match_lines]
 
-        # 从小到大检查不同长度的后缀
-        for check_len in range(1, max_check_len + 1):
-            new_suffix = new_lines[-check_len:]
+        # 过滤掉全空的匹配行（避免全空内容误匹配）
+        non_empty_match = [line for line in stripped_match if line]
+        if not non_empty_match:
+            return None
 
-            # 检查这个后缀是否在原始内容中存在
-            # 不仅检查末尾，也检查原始内容的任意位置
-            for i in range(len(original_lines) - check_len + 1):
-                original_segment = original_lines[i:i + check_len]
+        for i in range(len(content_lines) - match_len + 1):
+            segment = content_lines[i:i + match_len]
+            stripped_segment = [line.strip() for line in segment]
 
-                # 比较时去除首尾空格，因为缩进可能不同
-                if self._lines_match_ignoring_indent(new_suffix, original_segment):
-                    max_duplicate_len = check_len
-                    break
+            if stripped_match == stripped_segment:
+                return (i, i + match_len)
 
-        # 如果找到重复，移除新内容末尾的重复部分
-        if max_duplicate_len > 0:
-            return new_lines[:-max_duplicate_len], max_duplicate_len
-
-        return new_lines, 0
-
-    def _lines_match_ignoring_indent(self, lines1: List[str], lines2: List[str]) -> bool:
-        """
-        比较两个行列表是否匹配（忽略缩进差异）
-
-        Args:
-            lines1: 第一组行
-            lines2: 第二组行
-
-        Returns:
-            如果内容匹配则返回True
-        """
-        if len(lines1) != len(lines2):
-            return False
-
-        for l1, l2 in zip(lines1, lines2):
-            # 去除首尾空格后比较
-            if l1.strip() != l2.strip():
-                return False
-
-        return True
+        return None
 
     def _detect_indent(self, line: str) -> str:
         """检测行的缩进字符串"""
@@ -743,16 +777,18 @@ class StreamFileOperationTool(BaseTool):
         self._total_bytes = 0
         self._chunk_count = 0
         self._original_lines = []
+        self._match_content = ""
         self._start_line = None
         self._end_line = None
         self._collected_content = []
         self._backup_created = False
         self._backup_path = None
         self._auto_indent = True
-        self._auto_deduplicate = True
         self._show_diff = True
         self._diff_format = "unified"
         self._original_content = ""
+        self._in_think_block = False
+        self._think_tag_buffer = ""
     
     def is_active(self) -> bool:
         """检查是否有活跃的文件操作"""
