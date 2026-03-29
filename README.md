@@ -4,9 +4,9 @@
 
 ## 演示视频
 
-<video src="https://cdn.jsdelivr.net/gh/Z-JY-Alex/Custom-DeepResearch@master/video/Video%20Project.mp4" controls width="100%" style="max-width: 100%; height: auto;">
-  您的浏览器不支持视频播放。
-</video>
+[![演示视频](https://img.shields.io/badge/bilibili-演示视频-blue?logo=bilibili)](https://www.bilibili.com/video/BV1R8XSB8E6Z/?spm_id_from=333.1387.homepage.video_card.click&vd_source=30d9a4459d89fa2aeb246cd413ecb204)
+
+或直接访问：[https://www.bilibili.com/video/BV1R8XSB8E6Z/](https://www.bilibili.com/video/BV1R8XSB8E6Z/)
 
 ## 功能特性
 
