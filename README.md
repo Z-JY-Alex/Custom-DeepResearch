@@ -4,7 +4,9 @@
 
 ## 演示视频
 
-[📹 点击下载演示视频](https://github.com/Z-JY-Alex/Custom-DeepResearch/releases/download/v1.0-demo/Video.Project.mp4) （60MB，展示系统完整使用流程）
+<video src="https://cdn.jsdelivr.net/gh/Z-JY-Alex/Custom-DeepResearch@master/video/Video%20Project.mp4" controls width="100%" style="max-width: 100%; height: auto;">
+  您的浏览器不支持视频播放。
+</video>
 
 ## 功能特性
 
