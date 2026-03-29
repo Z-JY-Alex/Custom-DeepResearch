@@ -49,6 +49,12 @@ deepresearch/
 │   ├── index.html                 # 前端页面
 │   ├── app.js                     # 前端逻辑（SSE流式处理）
 │   └── server.py                  # 前端静态文件服务
+├── video/
+│   └── Video Project.mp4          # 演示视频
+├── <session_id>/                  # 运行时生成的会话产出目录
+│   ├── *.md                       # 研究报告（Markdown）
+│   ├── TODO.md                    # 任务清单
+│   └── artifacts_storage/         # 产出物存储
 ├── .env.example                   # 环境变量模板
 ├── .env                           # 环境变量配置（不提交）
 └── requirements.txt               # Python依赖
@@ -155,6 +161,31 @@ python server.py
 - **后端**: Python, FastAPI, OpenAI API, Tavily
 - **前端**: 原生JS, SSE (Server-Sent Events), Markdown渲染
 - **协议**: MCP (Model Context Protocol)
+
+## 演示视频
+
+<video src="video/Video Project.mp4" controls width="100%">
+  您的浏览器不支持视频播放，请下载 <a href="video/Video Project.mp4">演示视频</a> 观看。
+</video>
+
+## 运行产出示例
+
+系统运行后会在项目根目录生成以 `session_id`（UUID）命名的目录，包含研究过程中的所有产出文件：
+
+```
+79dcd662-8fc3-4d08-aeeb-2fd3003acbba/    # 示例：AI时代生存发展指南研究
+├── AI技术2025-2026年最新发展报告.md
+├── AI职业替代风险深度分析报告.md
+├── AI时代生存发展指南.md
+├── TODO.md
+└── artifacts_storage/
+
+b5ddb49d-56ed-4507-8be3-1652a22f5535/    # 示例：伊朗局势对油价/金价影响分析
+├── 伊朗局势综合影响分析报告.md
+├── oil_price_geopolitics_analysis.md
+├── TODO.md
+└── artifacts_storage/
+```
 
 ## License
 
