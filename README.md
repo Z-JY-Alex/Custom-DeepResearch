@@ -4,9 +4,9 @@
 
 ## 演示视频
 
-[![演示视频](https://img.shields.io/badge/bilibili-演示视频-blue?logo=bilibili)](https://www.bilibili.com/video/BV1R8XSB8E6Z/?spm_id_from=333.1387.homepage.video_card.click&vd_source=30d9a4459d89fa2aeb246cd413ecb204)
+[![演示视频](https://img.shields.io/badge/bilibili-演示视频-blue?logo=bilibili)](https://www.bilibili.com/video/BV1S6XSBXEhk/?vd_source=30d9a4459d89fa2aeb246cd413ecb204)
 
-或直接访问：[https://www.bilibili.com/video/BV1R8XSB8E6Z/](https://www.bilibili.com/video/BV1R8XSB8E6Z/)
+或直接访问：[https://www.bilibili.com/video/BV1S6XSBXEhk/](https://www.bilibili.com/video/BV1S6XSBXEhk/)
 
 ## 功能特性
 
