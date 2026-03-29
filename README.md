@@ -2,11 +2,17 @@
 
 基于多Agent协作的深度研究助手，支持自动规划、并行执行、流式输出的智能研究系统。
 
+## 演示视频
+
+<video src="video/Video Project.mp4" controls width="100%">
+  您的浏览器不支持视频播放，请下载 <a href="video/Video Project.mp4">演示视频</a> 观看。
+</video>
+
 ## 功能特性
 
 - **智能规划**：PlanAgent 自动拆解复杂任务为多个子步骤
 - **并行执行**：多个子任务并行运行，实时流式输出进度
-- **多Agent协作**：搜索、内容分析、数据分析、代码生成、测试用例生成等专业Agent
+- **多Agent协作**：搜索、内容分析、总结报告等专业Agent
 - **流式文件操作**：实时查看文件写入过程
 - **产出物管理**：自动收集和管理研究过程中的产出文件
 - **会话管理**：支持多轮对话和会话复用
@@ -26,8 +32,6 @@ deepresearch/
 │   │   │   ├── content_analyzer.py# 内容分析Agent
 │   │   │   ├── summary.py         # 总结Agent
 │   │   │   └── data_analysis.py   # 数据分析Agent
-│   │   ├── code_executor.py       # 代码执行Agent
-│   │   ├── generate_test_cases.py # 测试用例生成Agent
 │   │   └── schema.py              # 数据模型
 │   ├── llm/
 │   │   ├── base.py                # LLM配置与消息模型
@@ -119,9 +123,6 @@ python server.py
 | `PlanAgent` | 主Agent，负责任务规划和子Agent调度 |
 | `WEB_SEARCH` | 网络搜索，使用Tavily API |
 | `CONTENT_ANALYSIS` | 文档内容深度分析 |
-| `DATA_ANALYSIS` | 数据分析与可视化 |
-| `CODE_GENERATE` | 代码生成与执行 |
-| `TEST_CASE_GENERATE` | 测试用例自动生成 |
 | `SUMMARY_REPORT` | 汇总所有子任务结果生成最终报告 |
 
 ## API 接口
@@ -162,11 +163,6 @@ python server.py
 - **前端**: 原生JS, SSE (Server-Sent Events), Markdown渲染
 - **协议**: MCP (Model Context Protocol)
 
-## 演示视频
-
-<video src="video/Video Project.mp4" controls width="100%">
-  您的浏览器不支持视频播放，请下载 <a href="video/Video Project.mp4">演示视频</a> 观看。
-</video>
 
 ## 运行产出示例
 
