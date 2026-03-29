@@ -4,8 +4,8 @@
 
 ## 演示视频
 
-<video src="video/Video Project.mp4" controls width="100%">
-  您的浏览器不支持视频播放，请下载 <a href="video/Video Project.mp4">演示视频</a> 观看。
+<video src="https://github.com/Z-JY-Alex/Custom-DeepResearch/raw/master/video/Video%20Project.mp4" controls width="100%">
+  您的浏览器不支持视频播放，请下载 <a href="https://github.com/Z-JY-Alex/Custom-DeepResearch/raw/master/video/Video%20Project.mp4">演示视频</a> 观看。
 </video>
 
 ## 功能特性
