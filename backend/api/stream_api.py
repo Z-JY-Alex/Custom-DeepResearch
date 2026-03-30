@@ -52,19 +52,17 @@ logger.add(
     encoding="utf-8"
 )
 
-# from backend.agent.planner_ai_test import PlanAgent
-from backend.agent.general_agent.planner import PlanAgent
-from backend.agent.general_agent.search import SearchAgent
-from backend.agent.general_agent.content_analyzer import ContentAnalyzerAgent
-from backend.agent.generate_test_cases import TestCasesGeneratorAgent
+from backend.agent.planner import PlanAgent
+from backend.agent.search import SearchAgent
+from backend.agent.content_analyzer import ContentAnalyzerAgent
 from backend.agent.code_executor import CodeExecutorAgent
-from backend.agent.general_agent.data_analysis import DataAnalysisAgent
+from backend.agent.data_analysis import DataAnalysisAgent
 
 from backend.llm.base import LLMConfig, Message, MessageRole
 from backend.memory.base import BaseMemory
 from backend.artifacts.manager import ArtifactManager
-from backend.agent.general_agent.base import AgentStreamPayload, AgentEventType
-from backend.agent.general_agent.summary import SummaryAgent
+from backend.agent.base import AgentStreamPayload, AgentEventType
+from backend.agent.summary import SummaryAgent
 from backend.agent.schema import AgentState
 
 

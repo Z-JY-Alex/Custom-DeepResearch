@@ -7,7 +7,7 @@ import asyncio
 import json
 from datetime import datetime
 
-from backend.agent.general_agent.base import BaseAgent
+from backend.agent.base import BaseAgent
 from backend.agent.schema import AgentState
 from backend.llm.base import BaseLLM, Message, MessageRole, LLMConfig
 

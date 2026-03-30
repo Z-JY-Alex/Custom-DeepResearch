@@ -6,7 +6,7 @@ import asyncio
 import json
 from datetime import datetime
 
-from backend.agent.general_agent.base import AgentEventType, AgentStreamPayload, BaseAgent, ToolInfo
+from backend.agent.base import AgentEventType, AgentStreamPayload, BaseAgent, ToolInfo
 from backend.agent.schema import AgentState
 from backend.llm.base import Message, MessageRole
 from backend.tools.tavily_search import TavilySearch

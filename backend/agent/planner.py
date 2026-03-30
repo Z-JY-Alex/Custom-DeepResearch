@@ -6,7 +6,7 @@ import json
 import asyncio
 import traceback
 
-from backend.agent.general_agent.base import BaseAgent, AgentStreamPayload, ToolInfo, AgentEventType
+from backend.agent.base import BaseAgent, AgentStreamPayload, ToolInfo, AgentEventType
 from backend.agent.schema import AgentState
 from backend.llm.base import Message, MessageRole
 from backend.tools.plan import PlanningTool

@@ -7,7 +7,7 @@ import asyncio
 import json
 from datetime import datetime
 
-from backend.agent.general_agent.base import BaseAgent, AgentStreamPayload, AgentEventType, ToolInfo
+from backend.agent.base import BaseAgent, AgentStreamPayload, AgentEventType, ToolInfo
 from backend.agent.schema import AgentState
 from backend.llm.base import BaseLLM, Message, MessageRole
 from backend.prompts.content_analysis import CONTENT_ANALYSIS_SYSTEMP_PROMPT, CONTENT_ANALYSIS_USER_PROMPT

@@ -4,7 +4,7 @@ from typing import Any, AsyncGenerator, List, Optional
 from loguru import logger
 from pydantic import Field
 
-from backend.agent.general_agent.base import BaseAgent
+from backend.agent.base import BaseAgent
 from backend.agent.schema import AgentState
 from backend.llm.base import Message, MessageRole
 from backend.tools.shell_execute import ShellExecuteTool

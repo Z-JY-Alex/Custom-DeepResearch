@@ -25,13 +25,13 @@ deepresearch/
 │   ├── api/
 │   │   └── stream_api.py          # 主API入口（流式SSE）
 │   ├── agent/
-│   │   ├── general_agent/         # Agent实现
-│   │   │   ├── base.py            # Agent基类
-│   │   │   ├── planner.py         # 规划Agent（任务拆解与并行调度）
-│   │   │   ├── search.py          # 搜索Agent
-│   │   │   ├── content_analyzer.py# 内容分析Agent
-│   │   │   ├── summary.py         # 总结Agent
-│   │   │   └── data_analysis.py   # 数据分析Agent
+│   │   ├── base.py                # Agent基类与流式协议
+│   │   ├── planner.py             # 规划Agent（任务拆解与并行调度）
+│   │   ├── search.py              # 搜索Agent
+│   │   ├── content_analyzer.py    # 内容分析Agent
+│   │   ├── summary.py             # 总结Agent
+│   │   ├── data_analysis.py       # 数据分析Agent
+│   │   ├── code_executor.py       # 代码执行Agent
 │   │   └── schema.py              # 数据模型
 │   ├── llm/
 │   │   ├── base.py                # LLM配置与消息模型
