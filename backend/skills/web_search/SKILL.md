@@ -49,3 +49,9 @@ search("Tesla stock price 2026", topic="finance")
 # Science research
 search("quantum computing breakthrough", search_depth="advanced")
 ```
+
+## Scripts
+
+See the `scripts/` directory for:
+- `search_engine.py` - Core search implementation
+- `result_parser.py` - Parse and structure search results

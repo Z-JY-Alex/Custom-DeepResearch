@@ -65,3 +65,10 @@ generate_code(
     language="javascript"
 )
 ```
+
+## Scripts
+
+See the `scripts/` directory for:
+- `code_generator.py` - Main code generation logic
+- `validators.py` - Code validation utilities
+- `templates/` - Code templates for different languages
