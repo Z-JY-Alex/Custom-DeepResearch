@@ -6,7 +6,7 @@ SkillManager：技能管理系统
 2. 使用时：按需读取完整 skill 文档
 3. 执行时：根据完整说明执行
 
-所有 skills 存储在 skills/docx/ 下，每个文件格式为：
+所有 skills 存储在 backend/skills/ 下，每个文件格式为：
 ---
 name: skill_name
 description: brief description
@@ -79,12 +79,11 @@ class SkillManager:
         初始化 SkillManager
 
         Args:
-            skills_dir: Skills 目录路径（默认为 backend/skills/docx）
+            skills_dir: Skills 目录路径（默认为 backend/skills）
         """
         if skills_dir is None:
-            # 默认指向 backend/skills/docx
-            current_dir = Path(__file__).parent
-            skills_dir = current_dir / "docx"
+            # 默认指向当前目录（backend/skills）
+            skills_dir = Path(__file__).parent
 
         self.skills_dir = Path(skills_dir)
 

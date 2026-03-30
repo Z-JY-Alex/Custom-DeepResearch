@@ -18,14 +18,16 @@ This skill enables you to search the web for information using search APIs and r
 
 ## Usage
 
+Search for information about a specific topic:
+
 ```
-search("query", topic="general", search_depth="basic")
+search(query="人工智能最新发展", topic="general", max_results=10)
 ```
 
 ## Parameters
 
 - `query` (required): The search query string
-- `topic` (optional): "general", "news", "finance", etc.
+- `topic` (optional): "general", "news", "finance", "science" etc.
 - `search_depth` (optional): "basic" or "advanced"
 - `max_results` (optional): Maximum number of results (default: 10)
 
@@ -33,3 +35,17 @@ search("query", topic="general", search_depth="basic")
 
 - List of search results with titles, URLs, and snippets
 - Structured data ready for further processing
+- Relevance scores for each result
+
+## Examples
+
+```
+# Search for AI news
+search("artificial intelligence news", topic="news", max_results=5)
+
+# Financial information search
+search("Tesla stock price 2026", topic="finance")
+
+# Science research
+search("quantum computing breakthrough", search_depth="advanced")
+```
